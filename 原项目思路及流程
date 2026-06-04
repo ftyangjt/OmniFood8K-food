@@ -1,0 +1,439 @@
+下面按“项目目标 → 数据准备 → 训练流程 → 模型内部 → 损失和保存 → 测试流程 → 整体思路”给你完整讲一遍。
+
+**项目目标**
+
+这个项目做的是单张食物图像的营养估计。输入一张食物图片，以及对应的深度图或预测深度图，输出 5 个连续数值：
+
+```text
+calories  热量
+mass      质量
+fat       脂肪
+carb      碳水
+protein   蛋白质
+```
+
+所以它不是分类任务，而是多任务回归任务。
+
+整体可以理解成：
+
+```text
+RGB 食物图像 + 深度图
+        ↓
+提取颜色、纹理、形状、体积相关特征
+        ↓
+多模态融合
+        ↓
+预测五个营养指标
+```
+
+**一、数据从哪里来**
+
+数据加载入口在 [utils_data222.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/utils/utils_data222.py)。
+
+它根据参数 `--dataset` 选择不同数据集：
+
+```python
+nutrition_rgbd
+nutrition_rgb_pre_d
+nutrition8K
+11w
+```
+
+默认是：
+
+```python
+nutrition_rgb_pre_d
+```
+
+也就是使用 RGB 图像 + 预测深度图。
+
+DataLoader 最后给训练脚本返回一批数据，格式大概是：
+
+```python
+x[0]  # RGB 图像
+x[1]  # label / dish_id
+x[2]  # calories
+x[3]  # mass
+x[4]  # fat
+x[5]  # carb
+x[6]  # protein
+x[7]  # depth / rgb-d 图像
+x[8]  # 点云，占位或读取但主流程不用
+x[9]  # dino_transform 后的 RGB 图，当前主流程基本不用
+```
+
+训练时真正用到的是：
+
+```python
+inputs = x[0]
+total_calories = x[2]
+total_mass = x[3]
+total_fat = x[4]
+total_carb = x[5]
+total_protein = x[6]
+inputs_rgbd = x[7]
+```
+
+也就是说，当前主训练流程主要依赖 RGB 图像、深度图和五个营养标签。
+
+**二、深度图怎么来**
+
+项目里有一个单独的脚本 [run.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/run.py)。
+
+它用 Depth Anything V2 从普通 RGB 图像生成深度图：
+
+```text
+RGB image
+   ↓
+Depth Anything V2
+   ↓
+depth image / rgb-d.png
+```
+
+这个脚本属于预处理阶段，不在训练主循环里实时运行。
+
+也就是说完整流程通常是：
+
+```text
+1. 准备 RGB 食物图像
+2. 用 run.py 生成预测深度图
+3. 把 RGB 和深度图路径写入 txt 文件
+4. train_nutrition.py 读取数据训练
+```
+
+**三、训练入口**
+
+训练入口是 [train_nutrition.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/train_nutrition.py)。
+
+启动后主要做这些事：
+
+```text
+1. 解析命令行参数
+2. 设置数据路径、权重路径、日志路径
+3. 设置随机种子
+4. 构建 DataLoader
+5. 构建模型
+6. 加载 Swin 和 ConvNeXt 的预训练权重
+7. 定义优化器和损失函数
+8. 每个 epoch 训练一次，再测试一次
+9. 如果测试效果变好，就保存 checkpoint
+```
+
+默认训练命令类似：
+
+```bash
+python train_nutrition.py --dataset nutrition_rgb_pre_d --b 8 --epoch 150
+```
+
+**四、模型整体结构**
+
+当前模型是双分支结构。
+
+```text
+RGB 图像分支：
+RGB image → SwinTransformer → 多尺度 RGB 特征
+
+深度图分支：
+Depth image → DepthAdapterV4 → ConvNeXt → 多尺度 Depth 特征
+
+融合部分：
+RGB 多尺度特征 + Depth 多尺度特征 → FusionNet_3Branch_UNet_FFT
+
+预测部分：
+融合后的特征 → 5 个预测头 → 5 个营养数值
+```
+
+代码里对应的是：
+
+```python
+net = SwinTransformer()
+net2 = convnext_small()
+adapter = DepthAdapterV4()
+net_cat = FusionNet_3Branch_UNet_FFT()
+
+pre_net1 = FeatureFusionNetwork222_Mask()
+pre_net2 = FeatureFusionNetwork222_Mask()
+pre_net3 = FeatureFusionNetwork222_Mask()
+pre_net4 = FeatureFusionNetwork222_Mask()
+pre_net5 = FeatureFusionNetwork222_Mask()
+```
+
+五个预测头分别负责：
+
+```text
+pre_net1 → calories
+pre_net2 → mass
+pre_net3 → fat
+pre_net4 → carb
+pre_net5 → protein
+```
+
+**五、RGB 分支**
+
+RGB 图像输入 Swin Transformer：
+
+```python
+output_rgb = net(inputs)
+r0, r1, r2, r3, r4 = output_rgb
+```
+
+Swin 会输出多层特征。低层特征偏纹理、边缘、颜色；高层特征偏语义，比如食物类别、区域结构等。
+
+训练中主要使用：
+
+```python
+r1, r2, r3, r4
+```
+
+**六、深度分支**
+
+深度图先经过 `DepthAdapterV4`：
+
+```python
+inputs_rgbd = adapter(inputs_rgbd)
+```
+
+这个 adapter 的作用是对预测深度图做校正。因为 Depth Anything 生成的是相对深度，不一定是真实尺度，所以这里加了一个可学习的 scale、shift 和 CNN 残差修正。
+
+然后送入 ConvNeXt：
+
+```python
+output_hha = net2(inputs_rgbd)
+d1, d2, d3, d4 = output_hha
+```
+
+ConvNeXt 输出多尺度深度特征。
+
+这一路主要提供几何信息，比如：
+
+```text
+食物高度
+形状
+体积感
+盘中占比
+深浅结构
+```
+
+**七、信号处理和融合部分**
+
+融合模块在 [dual_swin_convnext.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/model/dual_swin_convnext.py)。
+
+当前用的是：
+
+```python
+FusionNet_3Branch_UNet_FFT
+```
+
+它把 RGB 特征和 Depth 特征融合起来。
+
+最关键的是 `MultiFreqFusion`，它会对低层特征做 FFT 频域分解：
+
+```text
+RGB 特征 → 高频 + 低频
+Depth 特征 → 高频 + 低频
+```
+
+可以理解成：
+
+```text
+低频：整体轮廓、区域大小、形状、体积趋势
+高频：边缘、纹理、细节、食物表面颗粒
+```
+
+然后同频融合：
+
+```text
+RGB 高频 + Depth 高频
+RGB 低频 + Depth 低频
+```
+
+最后拼接并卷积压缩。
+
+这一步的项目思想是：  
+RGB 擅长颜色和纹理，Depth 擅长几何和空间结构。用频域拆开之后，模型能更清楚地融合“纹理细节”和“整体形状”。
+
+融合后得到四层特征：
+
+```python
+o1, o2, o3, o4
+```
+
+再送入五个预测头。
+
+**八、预测头**
+
+预测头在 [modules/fusion.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/modules/fusion.py)，主要类是：
+
+```python
+FeatureFusionNetwork222_Mask
+```
+
+它内部做了几件事：
+
+```text
+1. 把不同尺度特征统一到相近尺寸
+2. 使用 CrossAttentionFusion 做跨特征注意力
+3. 使用 GatedFusion 做门控融合
+4. 使用 ChannelMask 做通道选择
+5. 全局池化
+6. Linear 输出一个数值
+```
+
+每个预测头只输出一个值，所以项目用了五个头分别预测五个营养指标。
+
+**九、损失函数**
+
+基础损失是 L1Loss，也就是平均绝对误差：
+
+```python
+criterion = nn.L1Loss()
+```
+
+不过它不是直接加五个 L1，而是做了归一化：
+
+```python
+batch_size * L1(pred, target) / target.sum()
+```
+
+这样做的目的是避免数值大的指标支配训练。比如 calories 通常比 fat 大很多，如果直接加 loss，模型可能更偏向优化热量。
+
+五个任务损失分别是：
+
+```text
+calories_loss
+mass_loss
+fat_loss
+carb_loss
+protein_loss
+```
+
+此外还有一个跨模态对齐损失：
+
+```python
+loss_align = inter_modal_alignment_loss(o1) * 0.1
+```
+
+它希望 RGB 特征和 Depth 特征在同一个样本内更接近，不同样本之间更可区分。
+
+最后总损失是：
+
+```python
+loss22 = k1 * calories_loss
+       + k2 * mass_loss
+       + k3 * fat_loss
+       + k4 * carb_loss
+       + k5 * protein_loss
+       + loss_align
+```
+
+其中 `k1 ~ k5` 来自动态任务权重模块 `DynamicTaskPrioritization`。
+
+**十、动态任务权重**
+
+这个模块在 [three_D.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/model/three_D.py)。
+
+它会根据当前各任务 loss 更新权重：
+
+```python
+task_prior.update_weights(current_kpis)
+```
+
+简单说就是：哪个任务当前误差大，后面就适当多关注一些。这样五个营养指标不会完全平均训练，而是动态调整训练重点。
+
+**十一、训练保存**
+
+每个 epoch 训练完后，会跑一次测试集：
+
+```python
+train(epoch, net)
+test(epoch, net)
+scheduler.step()
+```
+
+测试时计算五个指标的 PMAE：
+
+```text
+calories_pmae
+mass_pmae
+fat_pmae
+carb_pmae
+protein_pmae
+```
+
+然后把它们加起来：
+
+```python
+loss_pmae = calories_pmae + mass_pmae + fat_pmae + carb_pmae + protein_pmae
+```
+
+如果当前 `loss_pmae` 比历史最好还低，就保存模型：
+
+```text
+saved/<log目录名>/ckpt_best.pth
+```
+
+保存内容包括：
+
+```text
+Swin 分支
+ConvNeXt 分支
+DepthAdapter
+融合网络
+五个预测头
+优化器状态
+epoch
+```
+
+**十二、测试流程**
+
+测试入口是 [test.py](c:/Users/13786/Desktop/深度学习大作业/OmniFood8K-food/test.py)。
+
+测试流程和训练里的 forward 基本一致：
+
+```text
+1. 构建同样的模型结构
+2. 加载 ckpt_best.pth
+3. 读取测试集
+4. RGB 进 Swin
+5. Depth 进 Adapter + ConvNeXt
+6. 多尺度融合
+7. 五个预测头输出
+8. 统计 MAE / PMAE
+```
+
+测试命令类似：
+
+```bash
+python test.py --dataset nutrition_rgb_pre_d --b 8 --ckpt ./saved/train/ckpt_best.pth
+```
+
+**十三、整个项目一句话概括**
+
+这个项目的完整思路是：
+
+```text
+先用 Depth Anything 给食物 RGB 图生成深度图，
+然后用 Swin 提取 RGB 颜色/纹理/语义特征，
+用 ConvNeXt 提取深度几何/体积特征，
+在低层用 FFT 做高低频对齐融合，
+在高层做多尺度特征拼接融合，
+最后用五个独立回归头预测热量、质量、脂肪、碳水和蛋白质。
+```
+
+它的核心创新点可以概括成三块：
+
+```text
+1. RGB + Depth 双模态营养估计
+2. FFT 高频/低频对齐融合
+3. 五任务动态加权回归
+```
+
+所以你看这个项目时，可以抓住一条主线：
+
+```text
+数据：RGB + 深度图
+模型：Swin + ConvNeXt 双分支
+融合：FFT 频域融合 + 注意力/门控融合
+输出：五个营养指标
+训练：归一化 L1 + 动态任务权重 + 跨模态对齐
+```

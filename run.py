@@ -4,11 +4,15 @@ import glob
 import matplotlib
 import numpy as np
 import os
+import sys
 import torch
 
-from depth_anything_v2.dpt import DepthAnythingV2
-
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DEPTH_ANYTHING_ROOT = os.path.join(PROJECT_ROOT, 'external', 'Depth-Anything-V2')
+if DEPTH_ANYTHING_ROOT not in sys.path:
+    sys.path.insert(0, DEPTH_ANYTHING_ROOT)
+
+from depth_anything_v2.dpt import DepthAnythingV2
 
 
 def project_path(*parts):

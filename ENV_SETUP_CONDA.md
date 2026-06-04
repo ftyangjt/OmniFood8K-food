@@ -1,10 +1,20 @@
-# Conda 环境配置教程
+# Conda 环境配置与使用说明
 
-本文档说明如何使用 Conda 为本项目配置可训练、可测试的 Python 环境。推荐优先使用 GPU 环境；CPU 环境可以用于检查代码和小规模推理，但不适合完整训练。
+本文档说明如何为本项目配置 Python/Conda 环境，并介绍 `environment.yml` 和 `requirements.txt` 的使用方法。
 
-## 1. 安装 Conda
+当前项目推荐环境：
 
-如果已经安装 Anaconda 或 Miniconda，可以跳过本步。
+- Python 3.10
+- PyTorch 2.1.2
+- TorchVision 0.16.2
+- CUDA 11.8
+- Windows + Conda 环境优先
+
+如果只是快速复现当前环境，优先使用 `environment.yml`。如果已经有自己的 Conda 环境，只想补齐 Python 包，可以使用 `requirements.txt`。
+
+## 1. 准备 Conda
+
+如果已经安装 Anaconda 或 Miniconda，可以跳过本节。
 
 推荐安装 Miniconda：
 
@@ -12,91 +22,120 @@
 https://docs.conda.io/en/latest/miniconda.html
 ```
 
-Windows 用户注意：如果命令行里的 `python --version` 打开的是 Microsoft Store 或直接失败，请在系统设置里关闭 Python 的 App execution aliases，或者始终在 `conda activate omnifood` 后使用 Python。
+Windows 用户建议使用 Anaconda Prompt 或 PowerShell，并确认 `python` 来自 Conda 环境：
 
-## 2. 创建项目环境
+```powershell
+where python
+python --version
+```
 
-建议使用 Python 3.10。不要优先选择 Python 3.12，因为 `open3d`、`pytorch_wavelets`、旧版 `timm` 等依赖更容易出现兼容性问题。
+如果 `python --version` 打开的是 Microsoft Store，或者命令不可用，请在 Windows 设置中搜索 `App execution aliases`，关闭 `python.exe` 和 `python3.exe` 的别名。
+
+## 2. 方式一：使用 environment.yml 创建完整环境
+
+这是推荐方式。`environment.yml` 记录了当前已经配置好的 Conda 环境，包括 PyTorch、CUDA 运行时和 pip 依赖。
+
+在项目根目录运行：
+
+```bash
+conda env create -f environment.yml
+```
+
+创建完成后激活环境：
+
+```bash
+conda activate omnifood
+```
+
+如果本机已经存在 `omnifood` 环境，可以更新环境：
+
+```bash
+conda env update -n omnifood -f environment.yml --prune
+```
+
+注意：当前 `environment.yml` 是从 Windows Conda 环境导出的，末尾可能包含本机路径形式的 `prefix`。如果在其他电脑上创建环境时遇到路径相关问题，可以删除 `environment.yml` 最后一行的 `prefix: ...` 后再执行创建命令。
+
+## 3. 方式二：使用 requirements.txt 安装 pip 依赖
+
+如果你希望手动创建 Conda 环境，再用 pip 安装依赖，可以使用本方式。
+
+先创建并激活环境：
 
 ```bash
 conda create -n omnifood python=3.10 -y
 conda activate omnifood
 ```
 
-确认当前 Python 来自 Conda 环境：
+然后安装依赖：
 
 ```bash
-python --version
-where python
+pip install -r requirements.txt
 ```
 
-Linux/macOS 使用：
-
-```bash
-which python
-```
-
-## 3. 安装 PyTorch
-
-推荐使用 PyTorch 2.1.2、TorchVision 0.16.2、CUDA 11.8：
-
-```bash
-conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=11.8 -c pytorch -c nvidia -y
-```
-
-这组版本来自 PyTorch 官方历史版本安装说明：
+`requirements.txt` 已包含 PyTorch CUDA 11.8 的额外索引：
 
 ```text
-https://pytorch.org/get-started/previous-versions/
+--extra-index-url https://download.pytorch.org/whl/cu118
 ```
 
-如果你的机器没有 NVIDIA GPU，可以安装 CPU 版本：
+因此会安装：
 
-```bash
-conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 cpuonly -c pytorch -y
-```
+- `torch==2.1.2`
+- `torchvision==0.16.2`
+- `torchaudio==2.1.2`
+- `numpy==1.24.4`
+- `scipy==1.10.1`
+- `pandas==2.0.3`
+- `timm==0.9.12`
+- `transformers==4.36.2`
+- `opencv-python`
+- `open3d==0.18.0`
+- `pytorch-wavelets`
+- 以及训练、测试和可视化所需的其他工具包
 
-验证 PyTorch：
+如果没有 NVIDIA GPU，建议不要直接使用当前 `requirements.txt` 安装 CUDA 版 PyTorch，而是先按 PyTorch 官方说明安装 CPU 版 PyTorch，再安装其他依赖。
+
+## 4. 验证环境
+
+激活环境后，在项目根目录运行：
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
 ```
 
-GPU 环境下，`torch.cuda.is_available()` 应该输出 `True`。
+GPU 环境正常时，通常会看到：
 
-## 4. 安装项目依赖
-
-先安装常规科学计算和图像处理依赖：
-
-```bash
-conda install numpy==1.24.4 scipy==1.10.1 pandas==2.0.3 pillow matplotlib scikit-learn tqdm -y
+```text
+2.1.2
+True
+11.8
 ```
 
-再用 pip 安装深度学习相关依赖：
-
-```bash
-pip install timm==0.9.12 transformers==4.36.2
-pip install opencv-python imageio open3d==0.18.0
-pip install tensorboardX ptflops thop pytorch-wavelets seaborn
-```
-
-验证主要依赖：
+继续检查主要依赖：
 
 ```bash
 python -c "import torch, torchvision, timm, transformers, cv2, open3d, pytorch_wavelets; print('deps ok')"
 ```
 
-## 5. 配置 Depth Anything V2
+如果该命令输出 `deps ok`，说明训练和推理所需的主要依赖已经可用。
 
-只有在需要运行 `run.py` 生成预测深度图时，才需要配置 Depth Anything V2。
+## 5. Depth Anything V2 配置
 
-项目代码中使用：
+项目的 `run.py` 会使用 Depth Anything V2 生成深度图：
 
 ```python
 from depth_anything_v2.dpt import DepthAnythingV2
 ```
 
-可以把 Depth Anything V2 源码放到项目的 `external/` 目录：
+当前项目已经支持从以下目录自动导入 Depth Anything V2：
+
+```text
+external/Depth-Anything-V2/
+```
+
+因此只要源码位于该目录，运行 `run.py` 时一般不需要再手动配置 `PYTHONPATH`。
+
+如果目录不存在，可以在项目根目录执行：
 
 ```bash
 mkdir external
@@ -104,27 +143,17 @@ git clone https://github.com/DepthAnything/Depth-Anything-V2 external/Depth-Anyt
 pip install -r external/Depth-Anything-V2/requirements.txt
 ```
 
-Windows PowerShell 临时加入 `PYTHONPATH`：
-
-```powershell
-$env:PYTHONPATH="$PWD\external\Depth-Anything-V2;$env:PYTHONPATH"
-```
-
-Linux/macOS 临时加入 `PYTHONPATH`：
+验证导入：
 
 ```bash
-export PYTHONPATH="$PWD/external/Depth-Anything-V2:$PYTHONPATH"
+python -c "import sys, os; sys.path.insert(0, os.path.abspath('external/Depth-Anything-V2')); from depth_anything_v2.dpt import DepthAnythingV2; print('depth anything ok')"
 ```
 
-验证：
-
-```bash
-python -c "from depth_anything_v2.dpt import DepthAnythingV2; print('depth anything ok')"
-```
+如果输出 `depth anything ok`，说明 Depth Anything V2 源码可以被 Python 找到。
 
 ## 6. 放置权重文件
 
-项目默认从 `pth/` 目录读取权重：
+项目默认从 `pth/` 目录读取预训练权重：
 
 ```text
 pth/swin_base_patch4_window12_384_22k.pth
@@ -132,9 +161,13 @@ pth/convnext_small_22k_1k_384.pth
 pth/depth_anything_v2_vitl.pth
 ```
 
-前两个是训练脚本使用的 Swin 和 ConvNeXt 预训练权重。第三个是 `run.py` 生成深度图时使用的 Depth Anything V2 权重。
+其中：
 
-也可以在运行时手动指定：
+- `swin_base_patch4_window12_384_22k.pth` 用于 Swin 分支
+- `convnext_small_22k_1k_384.pth` 用于 ConvNeXt 分支
+- `depth_anything_v2_vitl.pth` 用于 `run.py` 生成深度图
+
+也可以在运行时手动指定权重路径：
 
 ```bash
 python train_nutrition.py --swin_ckpt /path/to/swin.pth --convnext_ckpt /path/to/convnext.pth
@@ -159,14 +192,14 @@ data/nutrition5k_dataset/imagery/txt-file/rgb_in_overhead_train_processed.txt
 data/nutrition5k_dataset/imagery/txt-file/rgb_in_overhead_test_processed1.txt
 ```
 
-如果数据放在其他位置，运行时指定：
+如果数据集放在其他位置，可以运行时指定：
 
 ```bash
 python train_nutrition.py --data_root /path/to/nutrition5k_dataset
 python test.py --data_root /path/to/nutrition5k_dataset --ckpt ./saved/train/ckpt_best.pth
 ```
 
-## 8. 快速检查
+## 8. 快速检查代码
 
 在项目根目录运行：
 
@@ -174,19 +207,9 @@ python test.py --data_root /path/to/nutrition5k_dataset --ckpt ./saved/train/ckp
 python -m py_compile train_nutrition.py test.py run.py utils/utils_data222.py
 ```
 
-Windows 如果遇到 DataLoader 卡住或启动很慢，建议先把 `utils/utils_data222.py` 里的：
+如果没有输出错误，说明这些入口脚本至少可以通过 Python 语法检查。
 
-```python
-num_workers=32
-```
-
-临时改成：
-
-```python
-num_workers=0
-```
-
-确认环境没问题后再逐步调到 `4`、`8` 或更高。
+Windows 上如果训练时 DataLoader 卡住或启动很慢，可以先把数据加载的 `num_workers` 临时调小，例如改成 `0`、`4` 或 `8`，确认流程正常后再逐步调高。
 
 ## 9. 运行示例
 
@@ -194,6 +217,12 @@ num_workers=0
 
 ```bash
 python run.py --img-path /path/to/rgb_images --encoder vitl --outdir ./vis_depth
+```
+
+指定 Depth Anything V2 权重：
+
+```bash
+python run.py --img-path /path/to/rgb_images --encoder vitl --ckpt ./pth/depth_anything_v2_vitl.pth --outdir ./vis_depth
 ```
 
 训练：
@@ -210,30 +239,17 @@ python test.py --dataset nutrition_rgb_pre_d --b 8 --ckpt ./saved/train/ckpt_bes
 
 ## 10. 常见问题
 
-### `python --version` 没有正常输出
+### ModuleNotFoundError: depth_anything_v2
 
-Windows 上常见原因是系统调用了 Microsoft Store 的 Python alias。解决方式：
+确认 Depth Anything V2 源码目录存在：
 
-1. 打开 Windows 设置。
-2. 搜索 App execution aliases。
-3. 关闭 `python.exe` 和 `python3.exe` 的别名。
-4. 重新打开终端并执行 `conda activate omnifood`。
-
-### `torch.cuda.is_available()` 是 `False`
-
-检查 NVIDIA 驱动是否可用：
-
-```bash
-nvidia-smi
+```text
+external/Depth-Anything-V2/depth_anything_v2/dpt.py
 ```
 
-如果 `nvidia-smi` 不可用，需要先安装或更新 NVIDIA 驱动。Conda 安装的 `pytorch-cuda=11.8` 不要求你额外安装完整 CUDA Toolkit，但需要系统驱动支持对应运行时。
+当前 `run.py` 已经会自动把 `external/Depth-Anything-V2` 加入导入路径。如果仍然报错，检查是否在项目根目录运行，或者确认源码目录名称是否一致。
 
-### `ModuleNotFoundError: depth_anything_v2`
-
-说明 Depth Anything V2 源码没有被 Python 找到。按第 5 步配置 `PYTHONPATH`，或把 `depth_anything_v2` 包放到项目根目录。
-
-### `ModuleNotFoundError: pytorch_wavelets`
+### ModuleNotFoundError: pytorch_wavelets
 
 执行：
 
@@ -243,3 +259,23 @@ pip install pytorch-wavelets
 
 注意 pip 包名是 `pytorch-wavelets`，导入名是 `pytorch_wavelets`。
 
+### torch.cuda.is_available() 是 False
+
+先检查 NVIDIA 驱动：
+
+```bash
+nvidia-smi
+```
+
+如果 `nvidia-smi` 不可用，需要先安装或更新 NVIDIA 驱动。Conda 或 pip 安装的 CUDA 版 PyTorch 通常不要求单独安装完整 CUDA Toolkit，但系统驱动必须可用。
+
+### WinError 1114 或 c10.dll 加载失败
+
+如果导入 `torch` 时出现类似错误：
+
+```text
+OSError: [WinError 1114] 动态链接库(DLL)初始化例程失败
+Error loading ... torch\lib\c10.dll
+```
+
+通常是 PyTorch、CUDA 运行时、显卡驱动或 Conda 环境冲突导致。建议优先使用 `environment.yml` 重新创建干净环境，并确认激活环境后再运行脚本。

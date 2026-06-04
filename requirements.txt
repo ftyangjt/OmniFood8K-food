@@ -1,0 +1,31 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# PyTorch
+torch==2.1.2
+torchvision==0.16.2
+torchaudio==2.1.2
+
+# Scientific and Image Processing
+numpy==1.24.4
+scipy==1.10.1
+pandas==2.0.3
+pillow
+matplotlib
+scikit-learn
+tqdm
+
+# Deep Learning specific
+timm==0.9.12
+transformers==4.36.2
+
+# Other utilities
+opencv-python
+imageio
+open3d==0.18.0
+tensorboardX
+ptflops
+thop
+pytorch-wavelets
+seaborn
+setuptools==81.0.0
+PyWaveLets==1.8.0

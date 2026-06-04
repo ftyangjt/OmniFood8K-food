@@ -45,7 +45,3 @@ weights/
 *.tar
 *.tar.gz
 *.7z
-
-# Local paper copy / downloaded artifacts
-/2604.12356v1.pdf
-

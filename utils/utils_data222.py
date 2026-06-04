@@ -91,7 +91,7 @@ def get_DataLoader(args):
         ])
 
 
-        base_path = '/home/image1325_user/ssd_disk4/yudongjian_23/Data'
+        base_path = args.data_root_8k
 
         nutrition_train_txt = os.path.join(base_path, 'train_new333.txt')
         nutrition_test_txt = os.path.join(base_path, 'test_new333.txt')
@@ -115,7 +115,7 @@ def get_DataLoader(args):
         ])
 
 
-        base_path = '/home/image1325_user/ssd_disk4/yudongjian_23/Data/syn-data'
+        base_path = args.data_root_11w
         nutrition_train_txt = os.path.join(base_path, 'train2.txt')
         nutrition_test_txt = os.path.join(base_path, 'test2.txt')
 

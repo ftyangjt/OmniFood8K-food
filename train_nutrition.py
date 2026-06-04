@@ -24,6 +24,18 @@ from ptflops import get_model_complexity_info
 from thop import profile
 from thop import clever_format
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def project_path(*parts):
+    return os.path.join(PROJECT_ROOT, *parts)
+
+
+def resolve_path(path):
+    if path is None:
+        return None
+    return path if os.path.isabs(path) else project_path(path)
+
 
 
 def set_seed(args):
@@ -50,12 +62,30 @@ parser.add_argument('--dataset',
 parser.add_argument('--b', type=int, default=2, help='batch size')
 parser.add_argument('--epoch', type=int, default=150, help='epoch num')
 parser.add_argument('--resume', '-r', type=str, help='resume from checkpoint')
-parser.add_argument('--log', '-log', type=str, help='./logs')
+parser.add_argument('--log', '-log', type=str, default='./logs/train', help='training log directory')
+parser.add_argument('--save_dir', type=str, default='./saved', help='checkpoint root directory')
 parser.add_argument('--data_root', type=str,
-                    default="/home/image1325_user/ssd_disk1/yudongjian_23/Data/nutrition5k_dataset/", help="our dataset root")
+                    default='./data/nutrition5k_dataset', help="Nutrition5K dataset root")
+parser.add_argument('--data_root_8k', type=str,
+                    default='./data/nutrition8k', help="OmniFood8K dataset root")
+parser.add_argument('--data_root_11w', type=str,
+                    default='./data/syn-data', help="synthetic 11w dataset root")
+parser.add_argument('--swin_ckpt', type=str,
+                    default='./pth/swin_base_patch4_window12_384_22k.pth',
+                    help='Swin Transformer pretrained checkpoint')
+parser.add_argument('--convnext_ckpt', type=str,
+                    default='./pth/convnext_small_22k_1k_384.pth',
+                    help='ConvNeXt pretrained checkpoint')
 parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
 
 args = parser.parse_args()
+args.log = resolve_path(args.log)
+args.save_dir = resolve_path(args.save_dir)
+args.data_root = resolve_path(args.data_root)
+args.data_root_8k = resolve_path(args.data_root_8k)
+args.data_root_11w = resolve_path(args.data_root_11w)
+args.swin_ckpt = resolve_path(args.swin_ckpt)
+args.convnext_ckpt = resolve_path(args.convnext_ckpt)
 
 set_seed(args)
 
@@ -85,8 +115,13 @@ adapter = DepthAdapterV4(in_ch=3, base_ch=32)
 
 
 print('==> Load checkpoint..')
-swin_ckpt_path = "/home/image1325_user/ssd_disk4/yudongjian_23/food-nurtrition/pth/swin_base_patch4_window12_384_22k.pth"
-convnext_ckpt_path = "/home/image1325_user/ssd_disk4/yudongjian_23/food-nurtrition/pth/convnext_small_22k_1k_384.pth"
+swin_ckpt_path = args.swin_ckpt
+convnext_ckpt_path = args.convnext_ckpt
+
+if not os.path.exists(swin_ckpt_path):
+    raise FileNotFoundError(f"Swin checkpoint not found: {swin_ckpt_path}")
+if not os.path.exists(convnext_ckpt_path):
+    raise FileNotFoundError(f"ConvNeXt checkpoint not found: {convnext_ckpt_path}")
 
 swin_ckpt = torch.load(swin_ckpt_path, map_location="cpu", weights_only=True)
 convnext_ckpt = torch.load(convnext_ckpt_path, map_location="cpu", weights_only=True)
@@ -403,7 +438,8 @@ def test(epoch, net):
             }
             global min_epoch
             min_epoch = epoch
-            savepath = f"./saved/{args.log}"
+            run_name = os.path.basename(os.path.normpath(args.log)) or "train"
+            savepath = os.path.join(args.save_dir, run_name)
             check_dirs(savepath)
             torch.save(state, os.path.join(savepath, f"ckpt_best.pth"))
             logtxt(log_file_path, "= = =  ↑ ↑ ↑ ↑ ↑ ↑ ↑ = = = ")

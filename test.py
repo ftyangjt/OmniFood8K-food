@@ -18,6 +18,18 @@ from model.myswinb import SwinTransformer
 from modules.fusion import FeatureFusionNetwork222_Mask
 from modules.adapter import DepthAdapterV4
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def project_path(*parts):
+    return os.path.join(PROJECT_ROOT, *parts)
+
+
+def resolve_path(path):
+    if path is None:
+        return None
+    return path if os.path.isabs(path) else project_path(path)
+
 
 def set_seed(args):
     random.seed(args.seed)
@@ -33,14 +45,23 @@ parser.add_argument('--dataset',
                     default='nutrition_rgb_pre_d')
 parser.add_argument('--b', type=int, default=8, help='batch size')
 parser.add_argument('--data_root', type=str,
-                    default="/home/image1325_user/ssd_disk1/yudongjian_23/Data/nutrition5k_dataset/",
+                    default='./data/nutrition5k_dataset',
                     help="dataset root")
+parser.add_argument('--data_root_8k', type=str,
+                    default='./data/nutrition8k', help="OmniFood8K dataset root")
+parser.add_argument('--data_root_11w', type=str,
+                    default='./data/syn-data', help="synthetic 11w dataset root")
 parser.add_argument('--seed', type=int, default=42, help="random seed")
-parser.add_argument('--ckpt', type=str, required=True, help='path to trained checkpoint, e.g. ./saved/xxx/ckpt_best.pth')
+parser.add_argument('--ckpt', type=str, required=True, help='path to trained checkpoint, e.g. ./saved/train/ckpt_best.pth')
 parser.add_argument('--log', type=str, default='./test_logs', help='log dir')
 
 
 args = parser.parse_args()
+args.data_root = resolve_path(args.data_root)
+args.data_root_8k = resolve_path(args.data_root_8k)
+args.data_root_11w = resolve_path(args.data_root_11w)
+args.ckpt = resolve_path(args.ckpt)
+args.log = resolve_path(args.log)
 set_seed(args)
 
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'

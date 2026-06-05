@@ -8,6 +8,16 @@ from torchvision.transforms.transforms import CenterCrop
 from mydataset import Nutrition_RGBD, Nutrition_RGB_Pre_D, Nutrition8k, Nutrition11w
 import pdb
 
+def resolve_8k_image_root(base_path):
+    for dirname in ('1-data', '8036'):
+        candidate = os.path.join(base_path, dirname)
+        if os.path.isdir(candidate):
+            return candidate
+    raise FileNotFoundError(
+        f"OmniFood8K image directory not found under {base_path}. "
+        "Expected one of: 1-data, 8036."
+    )
+
 def get_DataLoader(args):
 
     if args.dataset == 'nutrition_rgbd':
@@ -96,7 +106,7 @@ def get_DataLoader(args):
         nutrition_train_txt = os.path.join(base_path, 'train_new333.txt')
         nutrition_test_txt = os.path.join(base_path, 'test_new333.txt')
 
-        nutrition_train_path = os.path.join(base_path, '1-data')
+        nutrition_train_path = resolve_8k_image_root(base_path)
 
         trainset = Nutrition8k(nutrition_train_path, nutrition_train_txt, transform=train_transform)
         testset = Nutrition8k(nutrition_train_path, nutrition_test_txt, transform=test_transform)

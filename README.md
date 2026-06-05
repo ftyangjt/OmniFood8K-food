@@ -1,5 +1,46 @@
 # OmniFood8K-food
 
+## Current local setup notes
+
+This workspace uses the public OmniFood8K dataset at:
+
+```text
+data/0-OminiFood8k/
+  train_new333.txt
+  test_new333.txt
+  8036/
+    <sample_id>/
+      camera_4.jpg
+      rgb-d.png
+```
+
+`train_nutrition.py` and `test.py` default to `--data_root_8k ./data/0-OminiFood8k`.
+`utils/utils_data222.py` accepts either `1-data/` or `8036/` under that root and
+uses whichever directory exists.
+
+For `--dataset nutrition8K`, every sample needs both `camera_4.jpg` and
+`rgb-d.png`. `camera_4.jpg` comes from the public dataset. `rgb-d.png` is the
+predicted depth image generated with `run.py` and should be placed in the same
+sample directory before training or testing.
+
+Generate missing `rgb-d.png` files in one run:
+
+```powershell
+.\generate_8k_depth.bat
+```
+
+or:
+
+```bash
+python generate_8k_depth.py --data-root ./data/0-OminiFood8k --ckpt ./pth/depth_anything_v2_vitl.pth
+```
+
+Depth generation uses:
+
+```text
+pth/depth_anything_v2_vitl.pth
+```
+
 这是 OmniFood8K: Single-Image Nutrition Estimation via Hierarchical Frequency-Aligned Fusion 的代码整理版本。项目用于从单张食物图像估计 5 个营养指标：热量、质量、脂肪、碳水化合物和蛋白质。
 
 项目主页：[OmniFood8K-food](https://yudongjian.github.io/OmniFood8K-food/)
@@ -93,7 +134,7 @@ python test.py --data_root /path/to/nutrition5k_dataset --ckpt ./saved/train/ckp
 如果使用其他数据集分支：
 
 ```bash
-python train_nutrition.py --dataset nutrition8K --data_root_8k /path/to/nutrition8k
+python train_nutrition.py --dataset nutrition8K --data_root_8k ./data/0-OminiFood8k
 python train_nutrition.py --dataset 11w --data_root_11w /path/to/syn-data
 ```
 

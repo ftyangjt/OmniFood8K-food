@@ -48,7 +48,7 @@ parser.add_argument('--data_root', type=str,
                     default='./data/nutrition5k_dataset',
                     help="dataset root")
 parser.add_argument('--data_root_8k', type=str,
-                    default='./data/nutrition8k', help="OmniFood8K dataset root")
+                    default='./data/0-OminiFood8k', help="OmniFood8K dataset root")
 parser.add_argument('--data_root_11w', type=str,
                     default='./data/syn-data', help="synthetic 11w dataset root")
 parser.add_argument('--seed', type=int, default=42, help="random seed")

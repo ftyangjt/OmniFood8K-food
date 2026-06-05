@@ -29,7 +29,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Depth Anything V2')
     
     parser.add_argument('--img-path', type=str, required=True)
-    parser.add_argument('--input-size', type=int, nargs=2, default=[640, 480])
+    parser.add_argument('--input-size', type=int, default=518)
     parser.add_argument('--outdir', type=str, default='./vis_depth')
     parser.add_argument('--ckpt', type=str, default=None,
                         help='Depth Anything V2 checkpoint path. Defaults to ./pth/depth_anything_v2_{encoder}.pth')

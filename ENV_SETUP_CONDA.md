@@ -167,6 +167,8 @@ pth/depth_anything_v2_vitl.pth
 - `convnext_small_22k_1k_384.pth` 用于 ConvNeXt 分支
 - `depth_anything_v2_vitl.pth` 用于 `run.py` 生成深度图
 
+`depth_anything_v2_vitl.pth` 文件需要在 https://github.com/DepthAnything/Depth-Anything-V2 找到 Pre-trained Models，下载其中的 Depth-Anything-V2-Large。
+
 也可以在运行时手动指定权重路径：
 
 ```bash
@@ -199,6 +201,52 @@ python train_nutrition.py --data_root /path/to/nutrition5k_dataset
 python test.py --data_root /path/to/nutrition5k_dataset --ckpt ./saved/train/ckpt_best.pth
 ```
 
+### 7.1 OmniFood8K 本地目录
+
+当前工作区使用开源 OmniFood8K 数据集目录：
+
+```text
+data/0-OminiFood8k/
+  train_new333.txt
+  test_new333.txt
+  8036/
+    <sample_id>/
+      camera_4.jpg
+      rgb-d.png
+```
+
+`train_nutrition.py` 和 `test.py` 默认使用 `--data_root_8k ./data/0-OminiFood8k`。`--dataset nutrition8K` 分支会在该目录下自动识别 `1-data/` 或 `8036/`，当前公开数据集使用的是 `8036/`。
+
+训练或测试 OmniFood8K 前，每个样本目录都需要同时存在：
+
+```text
+camera_4.jpg
+rgb-d.png
+```
+
+`camera_4.jpg` 来自公开数据集。`rgb-d.png` 是用 `run.py` 和 `pth/depth_anything_v2_vitl.pth` 生成的预测深度图，需要放在对应样本目录中。
+
+一键批量生成缺失的 `rgb-d.png`：
+
+```powershell
+.\generate_8k_depth.bat
+```
+
+或者直接运行 Python 脚本：
+
+```bash
+python generate_8k_depth.py --data-root ./data/0-OminiFood8k --ckpt ./pth/depth_anything_v2_vitl.pth
+```
+
+脚本会自动识别 `8036/` 或 `1-data/`，跳过已经存在的 `rgb-d.png`。如果需要重算，添加 `--overwrite`。
+
+本地 OmniFood8K 可以这样运行：
+
+```bash
+python train_nutrition.py --dataset nutrition8K
+python test.py --dataset nutrition8K --ckpt ./saved/train/ckpt_best.pth
+```
+
 ## 8. 快速检查代码
 
 在项目根目录运行：
@@ -229,6 +277,12 @@ python run.py --img-path /path/to/rgb_images --encoder vitl --ckpt ./pth/depth_a
 
 ```bash
 python train_nutrition.py --dataset nutrition_rgb_pre_d --b 8 --epoch 150 --log ./logs/train
+```
+
+使用当前 OmniFood8K 数据集训练：
+
+```bash
+python train_nutrition.py --dataset nutrition8K --b 8 --epoch 150 --log ./logs/train_8k
 ```
 
 测试：

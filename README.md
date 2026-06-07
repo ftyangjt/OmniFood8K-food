@@ -52,14 +52,7 @@ python scripts\test.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k
 python scripts\infer_nutrition.py --img-path .\fqcd.jpg --ckpt .\trained_weights\omnifood8k\ckpt_best.pth --depth-ckpt .\pth\depth_anything_v2_vitl.pth --save-depth
 ```
 
-根目录保留了兼容包装脚本，因此旧命令仍可用，例如：
-
-```powershell
-python train_nutrition.py --help
-python test.py --help
-```
-
-新命令建议优先使用 `scripts/` 下的真实脚本。
+入口脚本集中在 `scripts/` 目录。请统一使用 `python scripts\...` 的命令形式。
 
 ## 仓库结构
 
@@ -76,12 +69,7 @@ python test.py --help
 |-- pth/                      # 下载的预训练权重，不提交 Git
 |-- trained_weights/          # 本地训练输出，.pth 不提交 Git
 |-- logs/                     # 训练日志，不提交 Git
-|-- outputs/                  # 推理输出，不提交 Git
-|-- train_nutrition.py        # 兼容包装脚本
-|-- test.py                   # 兼容包装脚本
-|-- infer_nutrition.py        # 兼容包装脚本
-|-- run.py                    # 兼容包装脚本
-`-- generate_8k_depth.py      # 兼容包装脚本
+`-- outputs/                  # 推理输出，不提交 Git
 ```
 
 ## 文档
@@ -124,6 +112,6 @@ trained_weights/*.pth
 
 ## 注意事项
 
-- Windows 下 `train_nutrition.py` 和 `test.py` 默认使用 `--num_workers 0`，避免 DataLoader 多进程递归启动问题。
+- Windows 下 `scripts/train_nutrition.py` 和 `scripts/test.py` 默认使用 `--num_workers 0`，避免 DataLoader 多进程递归启动问题。
 - `nutrition8K` 每个样本目录都需要同时存在 `camera_4.jpg` 和 `rgb-d.png`。
 - `scripts/test.py` 用于测试数据集划分；自定义图片请使用 `scripts/infer_nutrition.py`。

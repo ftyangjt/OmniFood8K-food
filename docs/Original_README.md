@@ -88,12 +88,6 @@ python scripts\train_nutrition.py --dataset nutrition8K --data_root_8k .\data\0-
 
 ## 原始测试命令
 
-原始 README 给出的测试命令为：
-
-```bash
-python test.py --ckpt ./saved/logs/test2/ckpt_best.pth
-```
-
 当前本地建议使用：
 
 ```powershell

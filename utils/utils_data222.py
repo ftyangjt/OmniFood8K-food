@@ -19,6 +19,7 @@ def resolve_8k_image_root(base_path):
     )
 
 def get_DataLoader(args):
+    num_workers = getattr(args, 'num_workers', 0)
 
     if args.dataset == 'nutrition_rgbd':
 
@@ -137,13 +138,13 @@ def get_DataLoader(args):
     train_loader = DataLoader(trainset,
                               batch_size=args.b,
                               shuffle=True,
-                              num_workers=32,
+                              num_workers=num_workers,
                               pin_memory=True
                               )
     test_loader = DataLoader(testset,
                              batch_size=args.b,
                              shuffle=False,
-                             num_workers=32,
+                             num_workers=num_workers,
                              pin_memory=True
                              )
 

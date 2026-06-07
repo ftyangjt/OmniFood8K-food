@@ -257,7 +257,7 @@ python -m py_compile train_nutrition.py test.py run.py utils/utils_data222.py
 
 如果没有输出错误，说明这些入口脚本至少可以通过 Python 语法检查。
 
-Windows 上如果训练时 DataLoader 卡住或启动很慢，可以先把数据加载的 `num_workers` 临时调小，例如改成 `0`、`4` 或 `8`，确认流程正常后再逐步调高。
+Windows 上如果训练或测试时 DataLoader 卡住、反复打印 `==> Preparing data..`，或者很快 OOM，先使用 `--num_workers 0`。当前脚本已经默认 `num_workers=0`，确认流程正常后再尝试调成 `4` 或 `8`。
 
 ## 9. 运行示例
 
@@ -289,6 +289,12 @@ python train_nutrition.py --dataset nutrition8K --b 8 --epoch 150 --log ./logs/t
 
 ```bash
 python test.py --dataset nutrition_rgb_pre_d --b 8 --ckpt ./saved/train/ckpt_best.pth
+```
+
+使用当前 OmniFood8K checkpoint 测试时，建议 Windows 先保持单进程加载：
+
+```bash
+python test.py --dataset nutrition8K --b 1 --num_workers 0 --ckpt ./pth/ckpt_best.pth
 ```
 
 ## 10. 常见问题

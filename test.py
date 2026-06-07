@@ -54,6 +54,8 @@ parser.add_argument('--data_root_11w', type=str,
 parser.add_argument('--seed', type=int, default=42, help="random seed")
 parser.add_argument('--ckpt', type=str, required=True, help='path to trained checkpoint, e.g. ./saved/train/ckpt_best.pth')
 parser.add_argument('--log', type=str, default='./test_logs', help='log dir')
+parser.add_argument('--num_workers', type=int, default=0,
+                    help='DataLoader worker processes. Use 0 on Windows to avoid recursive worker startup.')
 
 
 args = parser.parse_args()

@@ -77,6 +77,8 @@ parser.add_argument('--convnext_ckpt', type=str,
                     default='./pth/convnext_small_22k_1k_384.pth',
                     help='ConvNeXt pretrained checkpoint')
 parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
+parser.add_argument('--num_workers', type=int, default=0,
+                    help='DataLoader worker processes. Use 0 on Windows to avoid recursive worker startup.')
 
 args = parser.parse_args()
 args.log = resolve_path(args.log)

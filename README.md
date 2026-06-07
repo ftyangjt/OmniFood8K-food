@@ -1,187 +1,129 @@
 # OmniFood8K-food
 
-## Current local setup notes
+本仓库是 **OmniFood8K: Single-Image Nutrition Estimation via Hierarchical Frequency-Aligned Fusion** 的本地可运行整理版本。
 
-This workspace uses the public OmniFood8K dataset at:
+项目用于从食物图像估计 5 个营养指标：
 
 ```text
-data/0-OminiFood8k/
-  train_new333.txt
-  test_new333.txt
-  8036/
-    <sample_id>/
-      camera_4.jpg
-      rgb-d.png
+Calories, Mass, Fat, Carbohydrate, Protein
 ```
 
-`train_nutrition.py` and `test.py` default to `--data_root_8k ./data/0-OminiFood8k`.
-`utils/utils_data222.py` accepts either `1-data/` or `8036/` under that root and
-uses whichever directory exists.
+项目主页：
 
-For `--dataset nutrition8K`, every sample needs both `camera_4.jpg` and
-`rgb-d.png`. `camera_4.jpg` comes from the public dataset. `rgb-d.png` is the
-predicted depth image generated with `run.py` and should be placed in the same
-sample directory before training or testing.
+```text
+https://yudongjian.github.io/OmniFood8K-food/
+```
 
-Generate missing `rgb-d.png` files in one run:
+## 快速开始
+
+激活 Conda 环境：
 
 ```powershell
-.\generate_8k_depth.bat
+conda activate omnifood
 ```
 
-or:
+生成 OmniFood8K 缺失的预测深度图：
 
-```bash
-python generate_8k_depth.py --data-root ./data/0-OminiFood8k --ckpt ./pth/depth_anything_v2_vitl.pth
+```powershell
+python scripts\generate_8k_depth.py --data-root .\data\0-OminiFood8k --encoder vitl --ckpt .\pth\depth_anything_v2_vitl.pth
 ```
 
-Depth generation uses:
+训练 OmniFood8K：
+
+```powershell
+python scripts\train_nutrition.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k --b 2 --epoch 150 --log .\logs\omnifood8k --save_dir .\trained_weights
+```
+
+最优权重保存到：
 
 ```text
-pth/depth_anything_v2_vitl.pth
+trained_weights/omnifood8k/ckpt_best.pth
 ```
 
-这是 OmniFood8K: Single-Image Nutrition Estimation via Hierarchical Frequency-Aligned Fusion 的代码整理版本。项目用于从单张食物图像估计 5 个营养指标：热量、质量、脂肪、碳水化合物和蛋白质。
+测试训练后的权重：
 
-项目主页：[OmniFood8K-food](https://yudongjian.github.io/OmniFood8K-food/)
+```powershell
+python scripts\test.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k --b 8 --ckpt .\trained_weights\omnifood8k\ckpt_best.pth
+```
 
-## 代码结构
+单张图片推理：
+
+```powershell
+python scripts\infer_nutrition.py --img-path .\fqcd.jpg --ckpt .\trained_weights\omnifood8k\ckpt_best.pth --depth-ckpt .\pth\depth_anything_v2_vitl.pth --save-depth
+```
+
+根目录保留了兼容包装脚本，因此旧命令仍可用，例如：
+
+```powershell
+python train_nutrition.py --help
+python test.py --help
+```
+
+新命令建议优先使用 `scripts/` 下的真实脚本。
+
+## 仓库结构
 
 ```text
 .
-├── model/                 # Swin、ConvNeXt、融合网络等模型定义
-├── modules/               # adapter、预测头、辅助融合模块
-├── utils/                 # DataLoader、日志、工具函数
-├── source/                # 论文图和展示材料
-├── pth/                   # 本地预训练权重和大模型文件，不提交到 Git
-├── data/                  # 本地数据集目录，不提交到 Git
-├── run.py                 # 使用 Depth Anything V2 生成预测深度图
-├── train_nutrition.py     # 训练入口
-├── test.py                # 测试入口
-└── mydataset.py           # 数据集定义
+|-- scripts/                  # 训练、测试、推理、深度图生成脚本
+|-- model/                    # Swin、ConvNeXt、融合网络等模型定义
+|-- modules/                  # Adapter、融合模块、预测头
+|-- utils/                    # DataLoader 和工具函数
+|-- docs/                     # 环境、数据集、使用说明
+|-- external/Depth-Anything-V2/
+|-- source/                   # 论文图和展示材料
+|-- data/                     # 本地数据集，不提交 Git
+|-- pth/                      # 下载的预训练权重，不提交 Git
+|-- trained_weights/          # 本地训练输出，.pth 不提交 Git
+|-- logs/                     # 训练日志，不提交 Git
+|-- outputs/                  # 推理输出，不提交 Git
+|-- train_nutrition.py        # 兼容包装脚本
+|-- test.py                   # 兼容包装脚本
+|-- infer_nutrition.py        # 兼容包装脚本
+|-- run.py                    # 兼容包装脚本
+`-- generate_8k_depth.py      # 兼容包装脚本
 ```
 
-## 环境准备
+## 文档
 
-建议使用 Python 3.8 或更高版本，并安装 PyTorch、torchvision、timm、transformers、opencv-python、open3d、tensorboardX、tqdm、ptflops、thop、pytorch_wavelets 等依赖。
+- [Conda 环境配置](docs/ENV_SETUP_CONDA.md)
+- [代码使用指南](docs/代码使用指南.md)
+- [数据集目录结构](docs/DATASET_STRUCTURE.md)
+- [项目思路及流程](docs/原项目思路及流程.md)
+- [原始 README 中文整理](docs/Original_README.md)
 
-推荐使用 Conda 配置环境，详细步骤见 [ENV_SETUP_CONDA.md](./ENV_SETUP_CONDA.md)。
+## 必要权重
 
-示例：
-
-```bash
-pip install torch torchvision timm transformers opencv-python open3d tensorboardX tqdm ptflops thop pytorch_wavelets
-```
-
-如果需要运行 `run.py` 生成深度图，还需要准备 Depth Anything V2 的源码包，使下面的导入可用：
-
-```python
-from depth_anything_v2.dpt import DepthAnythingV2
-```
-
-## 权重文件
-
-预训练权重统一放在项目根目录的 `pth/` 下。当前训练脚本默认读取：
+下载或准备以下权重，并放在 `pth/`：
 
 ```text
 pth/swin_base_patch4_window12_384_22k.pth
 pth/convnext_small_22k_1k_384.pth
-```
-
-如果要用 Depth Anything V2 生成深度图，默认读取：
-
-```text
 pth/depth_anything_v2_vitl.pth
 ```
 
-也可以通过参数指定其他位置：
-
-```bash
-python train_nutrition.py \
-  --swin_ckpt /path/to/swin_base_patch4_window12_384_22k.pth \
-  --convnext_ckpt /path/to/convnext_small_22k_1k_384.pth
-
-python run.py \
-  --img-path /path/to/images \
-  --ckpt /path/to/depth_anything_v2_vitl.pth
-```
-
-## 数据集目录
-
-默认数据集目录为：
+训练得到的营养估计模型建议放在：
 
 ```text
-data/nutrition5k_dataset/
+trained_weights/
 ```
 
-默认脚本会在其中查找：
+## 本地目录约定
+
+以下目录或文件默认不提交 Git：
 
 ```text
-data/nutrition5k_dataset/imagery/
-data/nutrition5k_dataset/imagery/txt-file/rgbd_train_processed.txt
-data/nutrition5k_dataset/imagery/txt-file/rgbd_test_processed1.txt
-data/nutrition5k_dataset/imagery/txt-file/rgb_in_overhead_train_processed.txt
-data/nutrition5k_dataset/imagery/txt-file/rgb_in_overhead_test_processed1.txt
+data/
+pth/
+logs/
+outputs/
+trained_weights/*.pth
 ```
 
-也可以指定数据路径：
+仓库保留 `trained_weights/.gitkeep`，用于保留目录本身。实际 `.pth` 权重文件只保留在本地。
 
-```bash
-python train_nutrition.py --data_root /path/to/nutrition5k_dataset
-python test.py --data_root /path/to/nutrition5k_dataset --ckpt ./saved/train/ckpt_best.pth
-```
+## 注意事项
 
-如果使用其他数据集分支：
-
-```bash
-python train_nutrition.py --dataset nutrition8K --data_root_8k ./data/0-OminiFood8k
-python train_nutrition.py --dataset 11w --data_root_11w /path/to/syn-data
-```
-
-## 生成深度图
-
-```bash
-python run.py \
-  --img-path /path/to/rgb_images \
-  --encoder vitl \
-  --outdir ./vis_depth
-```
-
-如果只保存预测深度图，不拼接原图：
-
-```bash
-python run.py --img-path /path/to/rgb_images --pred-only --grayscale
-```
-
-## 训练
-
-```bash
-python train_nutrition.py \
-  --dataset nutrition_rgb_pre_d \
-  --b 8 \
-  --epoch 150 \
-  --log ./logs/train
-```
-
-训练日志默认写入 `logs/train/train_log.txt`，最优 checkpoint 默认保存到：
-
-```text
-saved/train/ckpt_best.pth
-```
-
-## 测试
-
-```bash
-python test.py \
-  --dataset nutrition_rgb_pre_d \
-  --b 8 \
-  --ckpt ./saved/train/ckpt_best.pth
-```
-
-测试脚本会输出 5 个营养指标的 MAE、PMAE，以及 Mean MAE、Mean PMAE、Sum PMAE。
-
-## 说明
-
-- `pth/`、`data/`、`logs/`、`saved/` 等目录已加入 `.gitignore`，适合保存本地大文件和运行结果。
-- 默认路径都改为项目内相对路径；如果数据或权重放在其他位置，请使用命令行参数覆盖。
-- 当前代码默认使用 RGB 图像和预测深度图两路输入；点云字段虽然在数据集中读取，但主训练和测试流程没有使用。
+- Windows 下 `train_nutrition.py` 和 `test.py` 默认使用 `--num_workers 0`，避免 DataLoader 多进程递归启动问题。
+- `nutrition8K` 每个样本目录都需要同时存在 `camera_4.jpg` 和 `rgb-d.png`。
+- `scripts/test.py` 用于测试数据集划分；自定义图片请使用 `scripts/infer_nutrition.py`。

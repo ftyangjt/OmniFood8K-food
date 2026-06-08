@@ -89,7 +89,7 @@ class NutritionGUI:
         result_panel.columnconfigure(1, weight=1)
 
         rows = [
-            ("热量", "calories", "kcal"),
+            ("热量", "calories", "kJ"),
             ("质量", "mass", "g"),
             ("脂肪", "fat", "g"),
             ("碳水化合物", "carb", "g"),

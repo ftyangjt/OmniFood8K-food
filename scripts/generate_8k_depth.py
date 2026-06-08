@@ -52,6 +52,17 @@ def read_split_ids(data_root):
     return sorted(set(ids), key=lambda value: int(value) if value.isdigit() else value)
 
 
+def has_valid_image(path):
+    if not os.path.exists(path):
+        return False
+    try:
+        import cv2
+
+        return cv2.imread(path) is not None
+    except Exception:
+        return False
+
+
 def collect_samples(data_root, image_root, overwrite, all_dirs):
     jobs = []
     names = None if all_dirs else read_split_ids(data_root)
@@ -67,7 +78,7 @@ def collect_samples(data_root, image_root, overwrite, all_dirs):
         output_path = os.path.join(sample_dir, "rgb-d.png")
         if not os.path.exists(image_path):
             continue
-        if os.path.exists(output_path) and not overwrite:
+        if not overwrite and has_valid_image(output_path):
             continue
         jobs.append((image_path, output_path))
     return jobs

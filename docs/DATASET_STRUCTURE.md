@@ -66,6 +66,43 @@ fat         第 5 列
 carb        第 6 列
 ```
 
+## OmniFood8K 训练集和验证集划分
+
+当前代码不会在运行时重新随机划分 OmniFood8K，也没有额外的 `val_new333.txt`。划分完全由数据根目录下的两个文本文件决定：
+
+```text
+train_new333.txt  训练集
+test_new333.txt   验证/测试集
+```
+
+对应代码位于 `utils/utils_data222.py` 的 `get_DataLoader(args)`：
+
+```text
+nutrition_train_txt = <data_root_8k>/train_new333.txt
+nutrition_test_txt  = <data_root_8k>/test_new333.txt
+trainset = Nutrition8k(..., nutrition_train_txt, ...)
+testset  = Nutrition8k(..., nutrition_test_txt, ...)
+```
+
+`train_loader` 使用 `shuffle=True`，只打乱训练样本读取顺序；`test_loader` 使用 `shuffle=False`，保持 `test_new333.txt` 中的顺序。也就是说，训练/验证归属不受随机种子、batch size 或 epoch 影响，只取决于样本 ID 出现在哪个 txt 文件里。
+
+当前本地 `data/0-OminiFood8k/` 的划分统计：
+
+```text
+训练集 train_new333.txt  5668 个样本，约 70.53%
+验证集 test_new333.txt   2368 个样本，约 29.47%
+总计                     8036 个样本
+两个集合 sample_id 交集   0
+```
+
+训练脚本 `scripts/train_nutrition.py` 中变量名叫 `testloader`，但训练过程中它承担验证集角色：每个 epoch 训练结束后都会在 `test_new333.txt` 上评估 Calories、Mass、Fat、Carb、Protein 的 PMAE，并以五项 PMAE 之和 `loss_pmae` 作为选择最优模型的依据；当该值更小时，保存：
+
+```text
+trained_weights/<log目录名>/ckpt_best.pth
+```
+
+因此，若要严格区分论文式的验证集和最终测试集，需要额外准备第三个划分文件并修改 `get_DataLoader` 与训练/测试入口。目前仓库默认是“训练集 + test_new333 作为验证/测试集”的两分法。
+
 ## 生成 rgb-d.png
 
 训练或测试 `nutrition8K` 前，每个样本目录都需要：

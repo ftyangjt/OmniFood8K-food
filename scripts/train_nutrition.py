@@ -165,7 +165,7 @@ optimizer = torch.optim.Adam([
 
 ])
 
-def inter_modal_alignment_loss(cat_feat):
+def deprecated_inter_modal_alignment_loss(cat_feat):
     B, C, H, W = cat_feat.shape
     # RGB / Depth 通道拆分
     mid = C // 2
@@ -176,6 +176,18 @@ def inter_modal_alignment_loss(cat_feat):
     depth_vec = F.normalize(depth_feat.view(B, mid, -1).mean(dim=2), dim=1)
     sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / 0.1
     labels = torch.arange(B, device=cat_feat.device)
+    return F.cross_entropy(sim_matrix, labels)
+
+
+def inter_modal_alignment_loss(rgb_feat, depth_feat, temperature=0.1):
+    B = rgb_feat.shape[0]
+    if rgb_feat.shape[-2:] != depth_feat.shape[-2:]:
+        depth_feat = F.interpolate(depth_feat, size=rgb_feat.shape[-2:], mode='bilinear', align_corners=False)
+
+    rgb_vec = F.normalize(rgb_feat.flatten(2).mean(dim=2), dim=1)
+    depth_vec = F.normalize(depth_feat.flatten(2).mean(dim=2), dim=1)
+    sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / temperature
+    labels = torch.arange(B, device=rgb_feat.device)
     return F.cross_entropy(sim_matrix, labels)
 
 
@@ -241,11 +253,11 @@ def train(epoch, net):
         #  =====  输入 4 个 进行预测   ======
         o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
         outputs = [0, 0, 0, 0, 0]
-        outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-        outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-        outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-        outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-        outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+        outputs[0] = pre_net1(o1, o2, o3, o4).squeeze(-1)
+        outputs[1] = pre_net2(o1, o2, o3, o4).squeeze(-1)
+        outputs[2] = pre_net3(o1, o2, o3, o4).squeeze(-1)
+        outputs[3] = pre_net4(o1, o2, o3, o4).squeeze(-1)
+        outputs[4] = pre_net5(o1, o2, o3, o4).squeeze(-1)
 
 
         total_calories_loss = total_calories.shape[0] * criterion(outputs[0],total_calories) / total_calories.sum().item() if total_calories.sum().item() != 0 else criterion(outputs[0], total_calories)
@@ -256,7 +268,7 @@ def train(epoch, net):
 
         loss = total_calories_loss + total_mass_loss + total_fat_loss + total_carb_loss + total_protein_loss
 
-        loss_align = inter_modal_alignment_loss(o1)
+        loss_align = inter_modal_alignment_loss(r1, d1)
         loss_align = loss_align * 0.1    # λ 权重
 
         k1, k2, k3, k4, k5 = task_prior.task_weights
@@ -305,7 +317,7 @@ def train(epoch, net):
                 optimizer.param_groups[3]['lr']))
 
         if (batch_idx + 1) % 30 == 0 or batch_idx + 1 == len(trainloader):
-            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1),mass_loss / (batch_idx + 1),
+            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1), fat_loss / (batch_idx + 1),
                                          carb_loss / (batch_idx + 1), protein_loss / (batch_idx + 1)])
             task_prior.update_weights(current_kpis)
             print(task_prior.task_weights)
@@ -321,6 +333,11 @@ def test(epoch, net):
         net2.eval()
         net_cat.eval()
         adapter.eval()
+        pre_net1.eval()
+        pre_net2.eval()
+        pre_net3.eval()
+        pre_net4.eval()
+        pre_net5.eval()
         calories_ae = 0
         mass_ae = 0
         fat_ae = 0
@@ -361,11 +378,11 @@ def test(epoch, net):
                 #  =====  输入 4 个 进行预测   ======
                 o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
                 outputs = [0, 0, 0, 0, 0]
-                outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-                outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-                outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-                outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-                outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+                outputs[0] = pre_net1(o1, o2, o3, o4).squeeze(-1)
+                outputs[1] = pre_net2(o1, o2, o3, o4).squeeze(-1)
+                outputs[2] = pre_net3(o1, o2, o3, o4).squeeze(-1)
+                outputs[3] = pre_net4(o1, o2, o3, o4).squeeze(-1)
+                outputs[4] = pre_net5(o1, o2, o3, o4).squeeze(-1)
 
                 if epoch % 10 == 0:
                     #

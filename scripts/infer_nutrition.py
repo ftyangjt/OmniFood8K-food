@@ -112,7 +112,7 @@ def predict(raw_image, depth_image, nutrition_modules, device):
         r0, r1, r2, r3, r4 = net(inputs)
         d1, d2, d3, d4 = net2(adapter(inputs_depth))
         o1, o2, o3, o4 = net_cat([r1, r2, r3, r4], [d1, d2, d3, d4])
-        outputs = [head(o1, o2, o3, o4).squeeze().item() for head in heads]
+        outputs = [head(o1, o2, o3, o4).squeeze(-1).item() for head in heads]
     return outputs
 
 

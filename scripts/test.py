@@ -143,11 +143,11 @@ def forward_once(inputs, inputs_rgbd):
     o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
 
     outputs = [0, 0, 0, 0, 0]
-    outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-    outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-    outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-    outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-    outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+    outputs[0] = pre_net1(o1, o2, o3, o4).squeeze(-1)
+    outputs[1] = pre_net2(o1, o2, o3, o4).squeeze(-1)
+    outputs[2] = pre_net3(o1, o2, o3, o4).squeeze(-1)
+    outputs[3] = pre_net4(o1, o2, o3, o4).squeeze(-1)
+    outputs[4] = pre_net5(o1, o2, o3, o4).squeeze(-1)
 
     return outputs
 

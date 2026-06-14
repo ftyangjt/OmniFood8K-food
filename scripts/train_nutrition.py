@@ -79,6 +79,8 @@ parser.add_argument('--swin_ckpt', type=str,
 parser.add_argument('--convnext_ckpt', type=str,
                     default='./pth/convnext_small_22k_1k_384.pth',
                     help='ConvNeXt pretrained checkpoint')
+parser.add_argument('--nutrition_head_ckpt', type=str, default=None,
+                    help='optional shared nutrition head checkpoint for warm start')
 parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
 parser.add_argument('--num_workers', type=int, default=0,
                     help='DataLoader worker count. Use 0 on Windows to avoid spawn recursion.')
@@ -89,8 +91,10 @@ args.save_dir = resolve_path(args.save_dir)
 args.data_root = resolve_path(args.data_root)
 args.data_root_8k = resolve_path(args.data_root_8k)
 args.data_root_11w = resolve_path(args.data_root_11w)
+args.resume = resolve_path(args.resume)
 args.swin_ckpt = resolve_path(args.swin_ckpt)
 args.convnext_ckpt = resolve_path(args.convnext_ckpt)
+args.nutrition_head_ckpt = resolve_path(args.nutrition_head_ckpt)
 
 set_seed(args)
 
@@ -106,7 +110,7 @@ net2 = convnext_small(pretrained=False,in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
 # -------------------
-from modules.fusion import SharedNutritionHead
+from modules.fusion import FeatureFusionNetwork222_Mask, SharedNutritionHead
 nutrition_head = SharedNutritionHead(dropout=0.1)
 
 task_prior = DynamicTaskPrioritization(alpha=0.3)
@@ -129,6 +133,44 @@ convnext_ckpt = torch.load(convnext_ckpt_path, map_location="cpu", weights_only=
 
 net.load_state_dict(swin_ckpt["model"], strict=False)
 net2.load_state_dict(convnext_ckpt["model"], strict=False)
+
+resume_ckpt = None
+if args.resume:
+    if not os.path.exists(args.resume):
+        raise FileNotFoundError(f"Resume checkpoint not found: {args.resume}")
+    resume_ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
+    for module_name, module in [
+        ("net", net),
+        ("net2", net2),
+        ("adapter", adapter),
+        ("net_cat", net_cat),
+    ]:
+        if module_name in resume_ckpt:
+            module.load_state_dict(resume_ckpt[module_name], strict=False)
+
+    if "nutrition_head" in resume_ckpt:
+        nutrition_head.load_state_dict(resume_ckpt["nutrition_head"], strict=True)
+    elif all(key in resume_ckpt for key in ["pre_net1", "pre_net2", "pre_net3", "pre_net4", "pre_net5"]):
+        legacy_dropouts = [0.1, 0.1, 0.1, 0.05, 0.1]
+        legacy_heads = [FeatureFusionNetwork222_Mask(dropout=dropout) for dropout in legacy_dropouts]
+        for legacy_head, key in zip(legacy_heads, ["pre_net1", "pre_net2", "pre_net3", "pre_net4", "pre_net5"]):
+            legacy_head.load_state_dict(resume_ckpt[key], strict=True)
+        nutrition_head.initialize_from_legacy_heads(legacy_heads)
+        print("Initialized shared nutrition head from legacy pre_net heads.")
+    else:
+        print("Resume checkpoint has no nutrition_head or legacy pre_net heads; nutrition head stays randomly initialized.")
+    print(f"Loaded training checkpoint from: {args.resume}")
+
+if args.nutrition_head_ckpt:
+    if resume_ckpt is not None:
+        print("Loading nutrition_head_ckpt after resume; it will override the resumed nutrition head.")
+    if not os.path.exists(args.nutrition_head_ckpt):
+        raise FileNotFoundError(f"Nutrition head checkpoint not found: {args.nutrition_head_ckpt}")
+    head_ckpt = torch.load(args.nutrition_head_ckpt, map_location="cpu", weights_only=False)
+    if "nutrition_head" not in head_ckpt:
+        raise KeyError(f"Nutrition head checkpoint missing key: nutrition_head")
+    nutrition_head.load_state_dict(head_ckpt["nutrition_head"], strict=True)
+    print(f"Loaded nutrition head warm start from: {args.nutrition_head_ckpt}")
 
 
 net = net.to(device)

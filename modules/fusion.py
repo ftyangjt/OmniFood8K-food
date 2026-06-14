@@ -141,6 +141,69 @@ class FeatureFusionNetwork222_Mask(nn.Module):
 
 
 
+class SharedNutritionHead(nn.Module):
+    def __init__(self, dropout=0.1, hidden_dim=256, num_tasks=5):
+        super(SharedNutritionHead, self).__init__()
+
+        self.feature1_conv = nn.Conv2d(192, 512, kernel_size=3, stride=1, padding=1)
+        self.feature1_pool = nn.AdaptiveAvgPool2d((12, 12))
+        self.feature2_conv = nn.Conv2d(384, 512, kernel_size=3, stride=1, padding=1)
+        self.feature2_pool = nn.AdaptiveAvgPool2d((12, 12))
+        self.feature3_conv = nn.Conv2d(768, 512, kernel_size=3, stride=1, padding=1)
+        self.feature3_pool = nn.AdaptiveAvgPool2d((12, 12))
+        self.feature4_conv = nn.Conv2d(768 * 2, 512, kernel_size=3, stride=1, padding=1)
+
+        self.cross_attn1 = CrossAttentionFusion(512)
+        self.gated_fusion1 = GatedFusion(512)
+        self.cross_attn2 = CrossAttentionFusion(512)
+        self.gated_fusion2 = GatedFusion(512)
+        self.rgb_fusion = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.semantic_fusion = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+
+        self.rgb_mask = ChannelMask(512)
+        self.semantic_mask = ChannelMask(512)
+        self.fused_mask = ChannelMask(1024)
+        self.attention = AttentionFusion(1024)
+
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.shared_mlp = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(1024, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.task_heads = nn.ModuleList([nn.Linear(hidden_dim, 1) for _ in range(num_tasks)])
+        self.output_activation = nn.Softplus()
+
+    def extract_features(self, x1, x2, x3, x4):
+        x1 = self.feature1_pool(self.feature1_conv(x1))
+        x2 = self.feature2_pool(self.feature2_conv(x2))
+        x3 = self.feature3_pool(self.feature3_conv(x3))
+        x4 = self.feature4_conv(x4)
+
+        rgb_fused = self.cross_attn1(x1, x2)
+        rgb_fused = self.gated_fusion1(rgb_fused, x2)
+        rgb_fused = self.rgb_fusion(rgb_fused)
+        rgb_fused = self.rgb_mask(rgb_fused)
+
+        semantic_fused = self.cross_attn2(x3, x4)
+        semantic_fused = self.gated_fusion2(semantic_fused, x4)
+        semantic_fused = self.semantic_fusion(semantic_fused)
+        semantic_fused = self.semantic_mask(semantic_fused)
+
+        fused_features = torch.cat([rgb_fused, semantic_fused], dim=1)
+        fused_features = self.attention(fused_features)
+        fused_features = self.fused_mask(fused_features)
+        fused_features = self.global_pool(fused_features)
+        return fused_features.flatten(1)
+
+    def forward(self, x1, x2, x3, x4):
+        features = self.extract_features(x1, x2, x3, x4)
+        shared = self.shared_mlp(features)
+        outputs = torch.cat([head(shared) for head in self.task_heads], dim=1)
+        return self.output_activation(outputs)
+
+
 # 测试代码（输入模拟数据）
 if __name__ == "__main__":
     # 假设batch_size为4，特征的大小根据给定的要求

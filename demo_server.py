@@ -1,10 +1,24 @@
 import json
 import os
+import threading
 from email.parser import BytesParser
 from email.policy import default
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+import cv2
+import numpy as np
+import torch
+
+from scripts.infer_nutrition import (
+    build_depth_model,
+    build_nutrition_model,
+    make_depth_image,
+    predict,
+    project_path,
+    resolve_path,
+)
 
 
 HOST = "127.0.0.1"
@@ -14,6 +28,13 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "aaaaaaaaaaaaaaaa")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://tokenflux.dev/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
 OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "xhigh")
+
+DEFAULT_NUTRITION_CKPT = r"trained_weights\omnifood8k\ckpt_best.pth"
+DEFAULT_ENCODER = "vitl"
+DEFAULT_INPUT_SIZE = 518
+
+MODEL_CACHE = {}
+MODEL_CACHE_LOCK = threading.Lock()
 
 
 class DemoHandler(SimpleHTTPRequestHandler):
@@ -41,7 +62,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
             if self.path == "/api/nutrition/predict":
                 payload = self.read_multipart_body()
-                result = predict_nutrition_placeholder(payload)
+                result = predict_nutrition(payload)
                 self.send_json(result)
                 return
 
@@ -92,6 +113,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
         return {
             "filename": image.get("filename", "") if image else "",
+            "image_data": image.get("data", b"") if image else b"",
             "image_size": len(image.get("data", b"")) if image else 0,
             "mode": mode,
             "profile": profile,
@@ -116,36 +138,62 @@ def parse_json_text(raw, default):
         return default
 
 
-def predict_nutrition_placeholder(payload):
-    """Reserved API shape for OmniFood8K inference.
+def predict_nutrition(payload):
+    image_data = payload.get("image_data") or b""
+    if not image_data:
+        raise ValueError("No image file was uploaded.")
 
-    Final implementation can call scripts/infer_nutrition.py functions:
-    build_depth_model -> make_depth_image -> build_nutrition_model -> predict.
-    Expected response stays the same so demo_vue.html will not need changes.
-    """
-    filename = (payload.get("filename") or "").lower()
+    options = payload.get("options") or {}
+    encoder = options.get("encoder") or DEFAULT_ENCODER
+    input_size = int(options.get("inputSize") or DEFAULT_INPUT_SIZE)
+    ckpt_path = resolve_path(options.get("ckpt") or DEFAULT_NUTRITION_CKPT)
+    depth_ckpt = options.get("depthCkpt") or project_path("pth", f"depth_anything_v2_{encoder}.pth")
+    depth_ckpt_path = resolve_path(depth_ckpt)
 
-    if "salad" in filename or "vegetable" in filename:
-        nutrition = {"calories": 260, "mass": 280, "fat": 9, "carb": 28, "protein": 13}
-    elif "chicken" in filename or "fish" in filename:
-        nutrition = {"calories": 430, "mass": 320, "fat": 16, "carb": 26, "protein": 42}
-    elif "cake" in filename or "fried" in filename:
-        nutrition = {"calories": 760, "mass": 260, "fat": 38, "carb": 82, "protein": 16}
-    else:
-        nutrition = {"calories": 520, "mass": 310, "fat": 18, "carb": 62, "protein": 24}
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"营养估计权重不存在: {ckpt_path}")
+    if not os.path.exists(depth_ckpt_path):
+        raise FileNotFoundError(f"深度估计权重不存在: {depth_ckpt_path}")
+
+    image_array = np.frombuffer(image_data, dtype=np.uint8)
+    raw_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    if raw_image is None:
+        raise ValueError(f"图片无法读取: {payload.get('filename') or 'uploaded image'}")
+
+    depth_model, nutrition_modules, device = load_models(ckpt_path, depth_ckpt_path, encoder)
+    depth_image = make_depth_image(depth_model, raw_image, input_size, grayscale=True)
+    values = predict(raw_image, depth_image, nutrition_modules, device)
+    values = [round(max(0.0, float(value)), 4) for value in values]
 
     return {
-        "source": "mock-server",
-        "model": "reserved-omnifood8k",
-        "nutrition": nutrition,
+        "source": "omnifood8k",
+        "model": "OmniFood8K + Depth Anything V2",
+        "device": device,
+        "nutrition": {
+            "calories": values[0],
+            "mass": values[1],
+            "fat": values[2],
+            "carb": values[3],
+            "protein": values[4],
+        },
         "received": {
             "filename": payload.get("filename"),
             "image_size": payload.get("image_size"),
             "mode": payload.get("mode"),
             "profile": payload.get("profile"),
-            "options": payload.get("options"),
         }
     }
+
+
+def load_models(ckpt_path, depth_ckpt_path, encoder):
+    cache_key = (ckpt_path, depth_ckpt_path, encoder)
+    with MODEL_CACHE_LOCK:
+        if cache_key not in MODEL_CACHE:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            depth_model = build_depth_model(encoder, depth_ckpt_path, device)
+            nutrition_modules = build_nutrition_model(ckpt_path, device)
+            MODEL_CACHE[cache_key] = depth_model, nutrition_modules, device
+        return MODEL_CACHE[cache_key]
 
 
 def generate_advice(payload):

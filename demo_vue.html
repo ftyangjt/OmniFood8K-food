@@ -796,14 +796,19 @@
                             body: formData
                         });
                         if (!response.ok) {
-                            throw new Error(`predict api ${response.status}`);
+                            let message = `predict api ${response.status}`;
+                            try {
+                                const errorBody = await response.json();
+                                message = errorBody.error || message;
+                            } catch (parseError) {
+                                message = response.statusText || message;
+                            }
+                            throw new Error(message);
                         }
                         const result = await response.json();
                         return this.normalizePredictionResponse(result);
                     } catch (error) {
-                        const fallback = await this.mockNutritionPrediction(file);
-                        fallback.meta.error = error.message;
-                        return fallback;
+                        throw new Error(`模型推理失败：${error.message}`);
                     }
                 },
                 normalizePredictionResponse(result) {

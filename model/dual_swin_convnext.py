@@ -76,10 +76,10 @@ class FusionNet_3Branch_UNet_FFT(nn.Module):
         super().__init__()
 
         # ---- RGB encoder ----
-        self.rgb_conv1 = nn.Conv2d(128, 96, 3, padding=1)
-        self.rgb_conv2 = nn.Conv2d(256, 192, 3, padding=1)
-        self.rgb_conv3 = nn.Conv2d(512, 384, 3, padding=1)
-        self.rgb_conv4 = nn.Conv2d(1024, 768, 3, padding=1)
+        self.rgb_conv1 = nn.Conv2d(96, 96, 3, padding=1)
+        self.rgb_conv2 = nn.Conv2d(192, 192, 3, padding=1)
+        self.rgb_conv3 = nn.Conv2d(384, 384, 3, padding=1)
+        self.rgb_conv4 = nn.Conv2d(768, 768, 3, padding=1)
 
         # ---- Depth encoder ----
         self.depth_conv1 = nn.Conv2d(96, 96, 3, padding=1)   #没用

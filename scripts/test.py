@@ -18,7 +18,7 @@ from utils.utils import logtxt, check_dirs
 from utils.utils_data222 import get_DataLoader
 
 from model import dual_swin_convnext
-from model.convnext1 import convnext_small
+from model.convnext1 import convnext_tiny
 from model.myswinb import SwinTransformer
 from modules.fusion import SharedNutritionHead
 from modules.adapter import DepthAdapterV4
@@ -75,7 +75,7 @@ print('==> Preparing data..')
 # Build model
 # =========================
 net = SwinTransformer()
-net2 = convnext_small(pretrained=False, in_22k=False)
+net2 = convnext_tiny(pretrained=False, in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
 nutrition_head = SharedNutritionHead(dropout=0.1)

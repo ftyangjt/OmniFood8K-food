@@ -21,7 +21,7 @@ import numpy as np
 from collections import OrderedDict
 import random
 from model import dual_swin_convnext
-from model.convnext1 import convnext_small
+from model.convnext1 import convnext_tiny
 import torch.backends.cudnn as cudnn
 from model.myswinb import SwinTransformer
 from model.three_D import DynamicTaskPrioritization
@@ -37,6 +37,18 @@ def resolve_path(path):
     if path is None:
         return None
     return path if os.path.isabs(path) else project_path(path)
+
+
+def load_matching_state_dict(model, state_dict, name):
+    model_state = model.state_dict()
+    matched_state = {
+        key: value
+        for key, value in state_dict.items()
+        if key in model_state and value.shape == model_state[key].shape
+    }
+    skipped = len(state_dict) - len(matched_state)
+    model.load_state_dict(matched_state, strict=False)
+    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
 
 
 
@@ -104,7 +116,7 @@ print('==> Preparing data..')
 
 global net
 net = SwinTransformer()
-net2 = convnext_small(pretrained=False,in_22k=False)
+net2 = convnext_tiny(pretrained=False,in_22k=False)
 
 # net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_Cat()
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
@@ -122,14 +134,6 @@ adapter = DepthAdapterV4(in_ch=3, base_ch=32)
 print('==> Load checkpoint..')
 swin_ckpt_path = args.swin_ckpt
 convnext_ckpt_path = args.convnext_ckpt
-
-if not os.path.exists(swin_ckpt_path):
-    raise FileNotFoundError(f"Swin checkpoint not found: {swin_ckpt_path}")
-if not os.path.exists(convnext_ckpt_path):
-    raise FileNotFoundError(f"ConvNeXt checkpoint not found: {convnext_ckpt_path}")
-
-swin_ckpt = torch.load(swin_ckpt_path, map_location="cpu", weights_only=True)
-convnext_ckpt = torch.load(convnext_ckpt_path, map_location="cpu", weights_only=True)
 
 net.load_state_dict(swin_ckpt["model"], strict=False)
 net2.load_state_dict(convnext_ckpt["model"], strict=False)
@@ -194,20 +198,6 @@ optimizer = torch.optim.Adam([
     {'params': nutrition_head.parameters(), 'lr': 1e-4, },  # 5e-4
 
 ])
-
-def deprecated_inter_modal_alignment_loss(cat_feat):
-    B, C, H, W = cat_feat.shape
-    # RGB / Depth 通道拆分
-    mid = C // 2
-    rgb_feat = cat_feat[:, :mid]
-    depth_feat = cat_feat[:, mid:]
-    # 全局平均池化
-    rgb_vec = F.normalize(rgb_feat.view(B, mid, -1).mean(dim=2), dim=1)
-    depth_vec = F.normalize(depth_feat.view(B, mid, -1).mean(dim=2), dim=1)
-    sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / 0.1
-    labels = torch.arange(B, device=cat_feat.device)
-    return F.cross_entropy(sim_matrix, labels)
-
 
 def inter_modal_alignment_loss(rgb_feat, depth_feat, temperature=0.1):
     B = rgb_feat.shape[0]

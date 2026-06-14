@@ -14,7 +14,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from model import dual_swin_convnext
-from model.convnext1 import convnext_small
+from model.convnext1 import convnext_tiny
 from model.myswinb import SwinTransformer
 from modules.adapter import DepthAdapterV4
 from modules.fusion import SharedNutritionHead
@@ -51,7 +51,7 @@ def build_depth_model(encoder, ckpt_path, device):
 
 def build_nutrition_model(ckpt_path, device):
     net = SwinTransformer().to(device)
-    net2 = convnext_small(pretrained=False, in_22k=False).to(device)
+    net2 = convnext_tiny(pretrained=False, in_22k=False).to(device)
     net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT().to(device)
     adapter = DepthAdapterV4(in_ch=3, base_ch=32).to(device)
 
@@ -88,7 +88,7 @@ def make_depth_image(depth_model, raw_image, input_size, grayscale=True):
 
 def preprocess_bgr(image_bgr):
     transform = transforms.Compose([
-        transforms.Resize((384, 384)),
+        transforms.Resize((320, 320)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])

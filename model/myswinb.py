@@ -435,7 +435,7 @@ class BasicLayer(nn.Module):
 
 class PatchEmbed(nn.Module):
 
-    def __init__(self, img_size=384, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
+    def __init__(self, img_size=320, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -498,9 +498,9 @@ class SwinTransformer(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=384, patch_size=4, in_chans=3,
-                 embed_dim=128, depths=[2, 2, 18, 2], num_heads=[4, 8, 16, 32],
-                 window_size=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+    def __init__(self, img_size=320, patch_size=4, in_chans=3,
+                 embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
+                 window_size=10, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
                  use_checkpoint=False, **kwargs):

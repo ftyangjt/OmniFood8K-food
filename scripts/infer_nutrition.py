@@ -17,7 +17,7 @@ from model import dual_swin_convnext
 from model.convnext1 import convnext_small
 from model.myswinb import SwinTransformer
 from modules.adapter import DepthAdapterV4
-from modules.fusion import FeatureFusionNetwork222_Mask
+from modules.fusion import SharedNutritionHead
 
 
 DEPTH_ANYTHING_ROOT = os.path.join(PROJECT_ROOT, 'external', 'Depth-Anything-V2')
@@ -55,16 +55,10 @@ def build_nutrition_model(ckpt_path, device):
     net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT().to(device)
     adapter = DepthAdapterV4(in_ch=3, base_ch=32).to(device)
 
-    heads = [
-        FeatureFusionNetwork222_Mask(dropout=0.1).to(device),
-        FeatureFusionNetwork222_Mask(dropout=0.1).to(device),
-        FeatureFusionNetwork222_Mask(dropout=0.1).to(device),
-        FeatureFusionNetwork222_Mask(dropout=0.05).to(device),
-        FeatureFusionNetwork222_Mask(dropout=0.1).to(device),
-    ]
+    nutrition_head = SharedNutritionHead(dropout=0.1).to(device)
 
     ckpt = torch.load(ckpt_path, map_location=device)
-    required = ['net', 'net2', 'adapter', 'net_cat', 'pre_net1', 'pre_net2', 'pre_net3', 'pre_net4', 'pre_net5']
+    required = ['net', 'net2', 'adapter', 'net_cat', 'nutrition_head']
     missing = [key for key in required if key not in ckpt]
     if missing:
         raise KeyError(f'Checkpoint is not a trained nutrition model. Missing keys: {missing}')
@@ -73,13 +67,12 @@ def build_nutrition_model(ckpt_path, device):
     net2.load_state_dict(ckpt['net2'], strict=False)
     adapter.load_state_dict(ckpt['adapter'], strict=False)
     net_cat.load_state_dict(ckpt['net_cat'], strict=False)
-    for head, key in zip(heads, ['pre_net1', 'pre_net2', 'pre_net3', 'pre_net4', 'pre_net5']):
-        head.load_state_dict(ckpt[key], strict=False)
+    nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
 
-    modules = [net, net2, net_cat, adapter, *heads]
+    modules = [net, net2, net_cat, adapter, nutrition_head]
     for module in modules:
         module.eval()
-    return net, net2, net_cat, adapter, heads
+    return net, net2, net_cat, adapter, nutrition_head
 
 
 def make_depth_image(depth_model, raw_image, input_size, grayscale=True):
@@ -104,7 +97,7 @@ def preprocess_bgr(image_bgr):
 
 
 def predict(raw_image, depth_image, nutrition_modules, device):
-    net, net2, net_cat, adapter, heads = nutrition_modules
+    net, net2, net_cat, adapter, nutrition_head = nutrition_modules
     inputs = preprocess_bgr(raw_image).to(device)
     inputs_depth = preprocess_bgr(depth_image).to(device)
 
@@ -112,7 +105,7 @@ def predict(raw_image, depth_image, nutrition_modules, device):
         r0, r1, r2, r3, r4 = net(inputs)
         d1, d2, d3, d4 = net2(adapter(inputs_depth))
         o1, o2, o3, o4 = net_cat([r1, r2, r3, r4], [d1, d2, d3, d4])
-        outputs = [head(o1, o2, o3, o4).squeeze().item() for head in heads]
+        outputs = nutrition_head(o1, o2, o3, o4).squeeze(0).tolist()
     return outputs
 
 

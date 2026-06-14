@@ -106,12 +106,8 @@ net2 = convnext_small(pretrained=False,in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
 # -------------------
-from modules.fusion import FeatureFusionNetwork222_Mask
-pre_net1 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net2 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net3 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net4 = FeatureFusionNetwork222_Mask(dropout=0.05)
-pre_net5 = FeatureFusionNetwork222_Mask(dropout=0.1)
+from modules.fusion import SharedNutritionHead
+nutrition_head = SharedNutritionHead(dropout=0.1)
 
 task_prior = DynamicTaskPrioritization(alpha=0.3)
 
@@ -140,11 +136,7 @@ net2 = net2.to(device)
 net_cat = net_cat.to(device)
 adapter = adapter.to(device)
 
-pre_net1 = pre_net1.to(device)
-pre_net2 = pre_net2.to(device)
-pre_net3 = pre_net3.to(device)
-pre_net4 = pre_net4.to(device)
-pre_net5 = pre_net5.to(device)
+nutrition_head = nutrition_head.to(device)
 
 criterion = nn.L1Loss()
 
@@ -157,15 +149,11 @@ optimizer = torch.optim.Adam([
 
     {'params': adapter.parameters(), 'lr': 1e-4, },  # 5e-4
 
-    {'params': pre_net1.parameters(), 'lr': 1e-4, },  # 5e-4
-    {'params': pre_net2.parameters(), 'lr': 1e-4, },  # 5e-4
-    {'params': pre_net3.parameters(), 'lr': 1e-4, },  # 5e-4
-    {'params': pre_net4.parameters(), 'lr': 1e-4, },  # 5e-4
-    {'params': pre_net5.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': nutrition_head.parameters(), 'lr': 1e-4, },  # 5e-4
 
 ])
 
-def inter_modal_alignment_loss(cat_feat):
+def deprecated_inter_modal_alignment_loss(cat_feat):
     B, C, H, W = cat_feat.shape
     # RGB / Depth 通道拆分
     mid = C // 2
@@ -177,6 +165,27 @@ def inter_modal_alignment_loss(cat_feat):
     sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / 0.1
     labels = torch.arange(B, device=cat_feat.device)
     return F.cross_entropy(sim_matrix, labels)
+
+
+def inter_modal_alignment_loss(rgb_feat, depth_feat, temperature=0.1):
+    B = rgb_feat.shape[0]
+    if rgb_feat.shape[-2:] != depth_feat.shape[-2:]:
+        depth_feat = F.interpolate(depth_feat, size=rgb_feat.shape[-2:], mode='bilinear', align_corners=False)
+
+    rgb_vec = F.normalize(rgb_feat.mean(dim=1).flatten(1), dim=1)
+    depth_vec = F.normalize(depth_feat.mean(dim=1).flatten(1), dim=1)
+    sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / temperature
+    labels = torch.arange(B, device=rgb_feat.device)
+    return F.cross_entropy(sim_matrix, labels)
+
+
+def calories_consistency_loss(outputs):
+    calories = outputs[:, 0]
+    fat = outputs[:, 2]
+    carb = outputs[:, 3]
+    protein = outputs[:, 4]
+    estimated_calories = 9.0 * fat + 4.0 * carb + 4.0 * protein
+    return F.smooth_l1_loss(calories, estimated_calories)
 
 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=2e-6)
@@ -194,11 +203,7 @@ def train(epoch, net):
     print('\nEpoch: %d' % epoch)
     net.train()
     net2.train()
-    pre_net1.train()
-    pre_net2.train()
-    pre_net3.train()
-    pre_net4.train()
-    pre_net5.train()
+    nutrition_head.train()
     
     net_cat.train()
     adapter.train()
@@ -240,12 +245,8 @@ def train(epoch, net):
 
         #  =====  输入 4 个 进行预测   ======
         o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
-        outputs = [0, 0, 0, 0, 0]
-        outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-        outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-        outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-        outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-        outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+        pred = nutrition_head(o1, o2, o3, o4)
+        outputs = [pred[:, i] for i in range(5)]
 
 
         total_calories_loss = total_calories.shape[0] * criterion(outputs[0],total_calories) / total_calories.sum().item() if total_calories.sum().item() != 0 else criterion(outputs[0], total_calories)
@@ -256,12 +257,13 @@ def train(epoch, net):
 
         loss = total_calories_loss + total_mass_loss + total_fat_loss + total_carb_loss + total_protein_loss
 
-        loss_align = inter_modal_alignment_loss(o1)
+        loss_align = inter_modal_alignment_loss(r1, d1)
         loss_align = loss_align * 0.1    # λ 权重
+        loss_consistency = calories_consistency_loss(pred) * 0.01
 
         k1, k2, k3, k4, k5 = task_prior.task_weights
         loss22 = k1 * total_calories_loss + k2 * total_mass_loss + k3 * total_fat_loss + \
-                 k4 * total_carb_loss + k5 * total_protein_loss  + loss_align
+                 k4 * total_carb_loss + k5 * total_protein_loss  + loss_align + loss_consistency
 
         loss22.backward()
         optimizer.step()
@@ -290,6 +292,7 @@ def train(epoch, net):
                                   'carbloss: {:2.5f} \t'
                                   'proteinloss: {:2.5f} \t'
                                   'loss_align: {} \t'
+                                  'loss_consistency: {} \t'
                                   'lr:{:2.5f}-{:2.5f}-{:2.5f}-{:2.5f}'.format(
                 epoch, batch_idx + 1, len(trainloader),
                        train_loss / (batch_idx + 1),
@@ -299,13 +302,14 @@ def train(epoch, net):
                        carb_loss / (batch_idx + 1),
                        protein_loss / (batch_idx + 1),
                         loss_align,
+                        loss_consistency,
                 optimizer.param_groups[0]['lr'],
                 optimizer.param_groups[1]['lr'],
                 optimizer.param_groups[2]['lr'],
                 optimizer.param_groups[3]['lr']))
 
         if (batch_idx + 1) % 30 == 0 or batch_idx + 1 == len(trainloader):
-            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1),mass_loss / (batch_idx + 1),
+            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1), fat_loss / (batch_idx + 1),
                                          carb_loss / (batch_idx + 1), protein_loss / (batch_idx + 1)])
             task_prior.update_weights(current_kpis)
             print(task_prior.task_weights)
@@ -321,6 +325,7 @@ def test(epoch, net):
         net2.eval()
         net_cat.eval()
         adapter.eval()
+        nutrition_head.eval()
         calories_ae = 0
         mass_ae = 0
         fat_ae = 0
@@ -360,12 +365,8 @@ def test(epoch, net):
 
                 #  =====  输入 4 个 进行预测   ======
                 o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
-                outputs = [0, 0, 0, 0, 0]
-                outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-                outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-                outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-                outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-                outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+                pred = nutrition_head(o1, o2, o3, o4)
+                outputs = [pred[:, i] for i in range(5)]
 
                 if epoch % 10 == 0:
                     #
@@ -431,11 +432,7 @@ def test(epoch, net):
                 'net2': net2.state_dict(),
                 'adapter': adapter.state_dict(),
 
-                'pre_net1': pre_net1.state_dict(),
-                'pre_net2': pre_net2.state_dict(),
-                'pre_net3': pre_net3.state_dict(),
-                'pre_net4': pre_net4.state_dict(),
-                'pre_net5': pre_net5.state_dict(),
+                'nutrition_head': nutrition_head.state_dict(),
 
                 'net_cat': net_cat.state_dict(),
                 'optimizer': optimizer.state_dict(),

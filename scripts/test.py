@@ -20,7 +20,7 @@ from utils.utils_data222 import get_DataLoader
 from model import dual_swin_convnext
 from model.convnext1 import convnext_small
 from model.myswinb import SwinTransformer
-from modules.fusion import FeatureFusionNetwork222_Mask
+from modules.fusion import SharedNutritionHead
 from modules.adapter import DepthAdapterV4
 
 def project_path(*parts):
@@ -78,11 +78,7 @@ net = SwinTransformer()
 net2 = convnext_small(pretrained=False, in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
-pre_net1 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net2 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net3 = FeatureFusionNetwork222_Mask(dropout=0.1)
-pre_net4 = FeatureFusionNetwork222_Mask(dropout=0.05)
-pre_net5 = FeatureFusionNetwork222_Mask(dropout=0.1)
+nutrition_head = SharedNutritionHead(dropout=0.1)
 
 adapter = DepthAdapterV4(in_ch=3, base_ch=32)
 
@@ -91,11 +87,7 @@ net2 = net2.to(device)
 net_cat = net_cat.to(device)
 adapter = adapter.to(device)
 
-pre_net1 = pre_net1.to(device)
-pre_net2 = pre_net2.to(device)
-pre_net3 = pre_net3.to(device)
-pre_net4 = pre_net4.to(device)
-pre_net5 = pre_net5.to(device)
+nutrition_head = nutrition_head.to(device)
 
 criterion = nn.L1Loss()
 
@@ -104,17 +96,17 @@ criterion = nn.L1Loss()
 # =========================
 print('==> Loading trained checkpoint..')
 ckpt = torch.load(args.ckpt, map_location=device)
+required = ['net', 'net2', 'adapter', 'net_cat', 'nutrition_head']
+missing = [key for key in required if key not in ckpt]
+if missing:
+    raise KeyError(f'Checkpoint is not a shared-head nutrition model. Missing keys: {missing}')
 
 net.load_state_dict(ckpt['net'], strict=False)
 net2.load_state_dict(ckpt['net2'], strict=False)
 adapter.load_state_dict(ckpt['adapter'], strict=False)
 net_cat.load_state_dict(ckpt['net_cat'], strict=False)
 
-pre_net1.load_state_dict(ckpt['pre_net1'], strict=False)
-pre_net2.load_state_dict(ckpt['pre_net2'], strict=False)
-pre_net3.load_state_dict(ckpt['pre_net3'], strict=False)
-pre_net4.load_state_dict(ckpt['pre_net4'], strict=False)
-pre_net5.load_state_dict(ckpt['pre_net5'], strict=False)
+nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
 
 print(f"Loaded checkpoint from: {args.ckpt}")
 if 'epoch' in ckpt:
@@ -142,12 +134,8 @@ def forward_once(inputs, inputs_rgbd):
 
     o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
 
-    outputs = [0, 0, 0, 0, 0]
-    outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
-    outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
-    outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
-    outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
-    outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
+    pred = nutrition_head(o1, o2, o3, o4)
+    outputs = [pred[:, i] for i in range(5)]
 
     return outputs
 
@@ -157,11 +145,7 @@ def test():
     net2.eval()
     net_cat.eval()
     adapter.eval()
-    pre_net1.eval()
-    pre_net2.eval()
-    pre_net3.eval()
-    pre_net4.eval()
-    pre_net5.eval()
+    nutrition_head.eval()
 
     calories_ae = 0
     mass_ae = 0

@@ -102,14 +102,7 @@ python scripts\test.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k
 https://drive.google.com/file/d/1aeRV_Ag2m4YlYlWEYVpZHcVRlDoaxLEW/view?usp=sharing
 ```
 
-注意：该权重是否对应当前本地的 `nutrition8K` 数据划分和当前生成的 `rgb-d.png`，需要进一步向作者确认。如果直接测试结果明显偏离论文，优先检查：
-
-```text
-1. checkpoint 对应的数据集
-2. 深度图生成方式
-3. train/test 划分文件
-4. 标注字段顺序
-```
+注意：该权重对应的是Nutrition 5k
 
 ## 作者联系方式
 

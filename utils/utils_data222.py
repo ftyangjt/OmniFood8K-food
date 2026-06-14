@@ -60,7 +60,7 @@ def get_DataLoader(args):
         train_transform = transforms.Compose([
                                     # transforms.RandomRotation(degrees=(0, 180)),
                                     # transforms.Resize((320, 448)),
-                                    transforms.Resize((384, 384)),
+                                    transforms.Resize((320, 320)),
                                     # transforms.RandomHorizontalFlip(),
                                     # transforms.CenterCrop((256,256)),
                                     # transforms.ColorJitter(hue=0.05),
@@ -70,7 +70,7 @@ def get_DataLoader(args):
                                     ])
         test_transform = transforms.Compose([
                                     # transforms.Resize((320, 448)),
-                                    transforms.Resize((384, 384)),
+                                    transforms.Resize((320, 320)),
                                     # transforms.CenterCrop((256, 256)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -114,13 +114,13 @@ def get_DataLoader(args):
 
     elif args.dataset == '11w':
         train_transform = transforms.Compose([
-            transforms.Resize((384, 384)),
+            transforms.Resize((320, 320)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
         ])
         test_transform = transforms.Compose([
-            transforms.Resize((384, 384)),
+            transforms.Resize((320, 320)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])

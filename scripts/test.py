@@ -41,6 +41,18 @@ def set_seed(args):
         torch.cuda.manual_seed_all(args.seed)
 
 
+def load_matching_state_dict(model, state_dict, name):
+    model_state = model.state_dict()
+    matched_state = {
+        key: value
+        for key, value in state_dict.items()
+        if key in model_state and value.shape == model_state[key].shape
+    }
+    skipped = len(state_dict) - len(matched_state)
+    model.load_state_dict(matched_state, strict=False)
+    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
+
+
 parser = argparse.ArgumentParser(description='PyTorch Nutrition Testing')
 parser.add_argument('--dataset',
                     choices=["nutrition_rgbd", "nutrition_rgb_pre_d", "nutrition8K", '11w'],
@@ -101,12 +113,12 @@ missing = [key for key in required if key not in ckpt]
 if missing:
     raise KeyError(f'Checkpoint is not a shared-head nutrition model. Missing keys: {missing}')
 
-net.load_state_dict(ckpt['net'], strict=False)
-net2.load_state_dict(ckpt['net2'], strict=False)
-adapter.load_state_dict(ckpt['adapter'], strict=False)
-net_cat.load_state_dict(ckpt['net_cat'], strict=False)
+load_matching_state_dict(net, ckpt['net'], 'net')
+load_matching_state_dict(net2, ckpt['net2'], 'net2')
+load_matching_state_dict(adapter, ckpt['adapter'], 'adapter')
+load_matching_state_dict(net_cat, ckpt['net_cat'], 'net_cat')
 
-nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
+load_matching_state_dict(nutrition_head, ckpt['nutrition_head'], 'nutrition_head')
 
 print(f"Loaded checkpoint from: {args.ckpt}")
 if 'epoch' in ckpt:

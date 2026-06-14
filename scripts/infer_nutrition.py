@@ -37,6 +37,18 @@ def resolve_path(path):
     return path if os.path.isabs(path) else project_path(path)
 
 
+def load_matching_state_dict(model, state_dict, name):
+    model_state = model.state_dict()
+    matched_state = {
+        key: value
+        for key, value in state_dict.items()
+        if key in model_state and value.shape == model_state[key].shape
+    }
+    skipped = len(state_dict) - len(matched_state)
+    model.load_state_dict(matched_state, strict=False)
+    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
+
+
 def build_depth_model(encoder, ckpt_path, device):
     model_configs = {
         'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
@@ -63,11 +75,11 @@ def build_nutrition_model(ckpt_path, device):
     if missing:
         raise KeyError(f'Checkpoint is not a trained nutrition model. Missing keys: {missing}')
 
-    net.load_state_dict(ckpt['net'], strict=False)
-    net2.load_state_dict(ckpt['net2'], strict=False)
-    adapter.load_state_dict(ckpt['adapter'], strict=False)
-    net_cat.load_state_dict(ckpt['net_cat'], strict=False)
-    nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
+    load_matching_state_dict(net, ckpt['net'], 'net')
+    load_matching_state_dict(net2, ckpt['net2'], 'net2')
+    load_matching_state_dict(adapter, ckpt['adapter'], 'adapter')
+    load_matching_state_dict(net_cat, ckpt['net_cat'], 'net_cat')
+    load_matching_state_dict(nutrition_head, ckpt['nutrition_head'], 'nutrition_head')
 
     modules = [net, net2, net_cat, adapter, nutrition_head]
     for module in modules:

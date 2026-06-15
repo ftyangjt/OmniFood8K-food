@@ -109,10 +109,11 @@ class FeatureFusionNetwork222_Mask(nn.Module):
 
     def forward(self, x1, x2, x3, x4):
         # 特征提取
-        x1 = self.feature1_pool(self.feature1_conv(x1))
-        x2 = self.feature2_pool(self.feature2_conv(x2))
-        x3 = self.feature3_pool(self.feature3_conv(x3))
         x4 = self.feature4_conv(x4)
+        target_size = x4.shape[-2:]
+        x1 = F.adaptive_avg_pool2d(self.feature1_conv(x1), target_size)
+        x2 = F.adaptive_avg_pool2d(self.feature2_conv(x2), target_size)
+        x3 = F.adaptive_avg_pool2d(self.feature3_conv(x3), target_size)
 
         # RGB 融合
         rgb_fused = self.cross_attn1(x1, x2)
@@ -171,10 +172,11 @@ class SharedNutritionHead(nn.Module):
         self.output_activation = nn.Softplus()
 
     def extract_features(self, x1, x2, x3, x4):
-        x1 = self.feature1_pool(self.feature1_conv(x1))
-        x2 = self.feature2_pool(self.feature2_conv(x2))
-        x3 = self.feature3_pool(self.feature3_conv(x3))
         x4 = self.feature4_conv(x4)
+        target_size = x4.shape[-2:]
+        x1 = F.adaptive_avg_pool2d(self.feature1_conv(x1), target_size)
+        x2 = F.adaptive_avg_pool2d(self.feature2_conv(x2), target_size)
+        x3 = F.adaptive_avg_pool2d(self.feature3_conv(x3), target_size)
 
         rgb_fused = self.cross_attn1(x1, x2)
         rgb_fused = self.gated_fusion1(rgb_fused, x2)

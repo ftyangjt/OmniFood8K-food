@@ -31,7 +31,7 @@ python scripts\generate_8k_depth.py --data-root .\data\0-OminiFood8k --encoder v
 训练 OmniFood8K：
 
 ```powershell
-python scripts\train_nutrition.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k --b 2 --epoch 150 --log .\logs\omnifood8k --save_dir .\trained_weights
+python scripts\train_nutrition.py --dataset nutrition8K --data_root_8k .\data\0-OminiFood8k --b 6 --epoch 150 --log .\logs\omnifood8k --save_dir .\trained_weights
 ```
 
 最优权重保存到：

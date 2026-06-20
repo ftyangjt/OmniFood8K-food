@@ -233,13 +233,13 @@ def test():
 
     result_str = (
         "\n================ Test Results ================\n"
-        f"Calories MAE  : {calories_mae:.6f}\n"
+        f"Calories MAE (kcal) : {calories_mae:.6f}\n"
         f"Mass MAE      : {mass_mae:.6f}\n"
         f"Fat MAE       : {fat_mae:.6f}\n"
         f"Carb MAE      : {carb_mae:.6f}\n"
         f"Protein MAE   : {protein_mae:.6f}\n"
         f"Mean MAE      : {mean_mae:.6f}\n\n"
-        f"Calories PMAE : {calories_pmae:.6f}\n"
+        f"Calories PMAE       : {calories_pmae:.6f}\n"
         f"Mass PMAE     : {mass_pmae:.6f}\n"
         f"Fat PMAE      : {fat_pmae:.6f}\n"
         f"Carb PMAE     : {carb_pmae:.6f}\n"

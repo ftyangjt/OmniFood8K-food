@@ -18,7 +18,7 @@ from utils.utils import logtxt, check_dirs
 from utils.utils_data222 import get_DataLoader
 
 from model import dual_swin_convnext
-from model.convnext1 import convnext_small
+from model.convnext1 import convnext_tiny
 from model.myswinb import SwinTransformer
 from modules.fusion import SharedNutritionHead
 from modules.adapter import DepthAdapterV4
@@ -39,6 +39,18 @@ def set_seed(args):
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
+
+
+def load_matching_state_dict(model, state_dict, name):
+    model_state = model.state_dict()
+    matched_state = {
+        key: value
+        for key, value in state_dict.items()
+        if key in model_state and value.shape == model_state[key].shape
+    }
+    skipped = len(state_dict) - len(matched_state)
+    model.load_state_dict(matched_state, strict=False)
+    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
 
 
 parser = argparse.ArgumentParser(description='PyTorch Nutrition Testing')
@@ -75,7 +87,7 @@ print('==> Preparing data..')
 # Build model
 # =========================
 net = SwinTransformer()
-net2 = convnext_small(pretrained=False, in_22k=False)
+net2 = convnext_tiny(pretrained=False, in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
 nutrition_head = SharedNutritionHead(dropout=0.1)
@@ -101,12 +113,12 @@ missing = [key for key in required if key not in ckpt]
 if missing:
     raise KeyError(f'Checkpoint is not a shared-head nutrition model. Missing keys: {missing}')
 
-net.load_state_dict(ckpt['net'], strict=False)
-net2.load_state_dict(ckpt['net2'], strict=False)
-adapter.load_state_dict(ckpt['adapter'], strict=False)
-net_cat.load_state_dict(ckpt['net_cat'], strict=False)
+load_matching_state_dict(net, ckpt['net'], 'net')
+load_matching_state_dict(net2, ckpt['net2'], 'net2')
+load_matching_state_dict(adapter, ckpt['adapter'], 'adapter')
+load_matching_state_dict(net_cat, ckpt['net_cat'], 'net_cat')
 
-nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
+load_matching_state_dict(nutrition_head, ckpt['nutrition_head'], 'nutrition_head')
 
 print(f"Loaded checkpoint from: {args.ckpt}")
 if 'epoch' in ckpt:
@@ -221,13 +233,13 @@ def test():
 
     result_str = (
         "\n================ Test Results ================\n"
-        f"Calories MAE  : {calories_mae:.6f}\n"
+        f"Calories MAE (kcal) : {calories_mae:.6f}\n"
         f"Mass MAE      : {mass_mae:.6f}\n"
         f"Fat MAE       : {fat_mae:.6f}\n"
         f"Carb MAE      : {carb_mae:.6f}\n"
         f"Protein MAE   : {protein_mae:.6f}\n"
         f"Mean MAE      : {mean_mae:.6f}\n\n"
-        f"Calories PMAE : {calories_pmae:.6f}\n"
+        f"Calories PMAE       : {calories_pmae:.6f}\n"
         f"Mass PMAE     : {mass_pmae:.6f}\n"
         f"Fat PMAE      : {fat_pmae:.6f}\n"
         f"Carb PMAE     : {carb_pmae:.6f}\n"

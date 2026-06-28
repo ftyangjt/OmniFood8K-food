@@ -109,10 +109,11 @@ class FeatureFusionNetwork222_Mask(nn.Module):
 
     def forward(self, x1, x2, x3, x4):
         # 特征提取
-        x1 = self.feature1_pool(self.feature1_conv(x1))
-        x2 = self.feature2_pool(self.feature2_conv(x2))
-        x3 = self.feature3_pool(self.feature3_conv(x3))
         x4 = self.feature4_conv(x4)
+        target_size = x4.shape[-2:]
+        x1 = F.adaptive_avg_pool2d(self.feature1_conv(x1), target_size)
+        x2 = F.adaptive_avg_pool2d(self.feature2_conv(x2), target_size)
+        x3 = F.adaptive_avg_pool2d(self.feature3_conv(x3), target_size)
 
         # RGB 融合
         rgb_fused = self.cross_attn1(x1, x2)
@@ -142,7 +143,7 @@ class FeatureFusionNetwork222_Mask(nn.Module):
 
 
 class SharedNutritionHead(nn.Module):
-    def __init__(self, dropout=0.1, hidden_dim=256, num_tasks=5):
+    def __init__(self, dropout=0.1, hidden_dim=None, num_tasks=5):
         super(SharedNutritionHead, self).__init__()
 
         self.feature1_conv = nn.Conv2d(192, 512, kernel_size=3, stride=1, padding=1)
@@ -166,20 +167,16 @@ class SharedNutritionHead(nn.Module):
         self.attention = AttentionFusion(1024)
 
         self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.shared_mlp = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(1024, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        self.task_heads = nn.ModuleList([nn.Linear(hidden_dim, 1) for _ in range(num_tasks)])
+        self.dropout = nn.Dropout(dropout)
+        self.task_heads = nn.ModuleList([nn.Linear(1024, 1) for _ in range(num_tasks)])
         self.output_activation = nn.Softplus()
 
     def extract_features(self, x1, x2, x3, x4):
-        x1 = self.feature1_pool(self.feature1_conv(x1))
-        x2 = self.feature2_pool(self.feature2_conv(x2))
-        x3 = self.feature3_pool(self.feature3_conv(x3))
         x4 = self.feature4_conv(x4)
+        target_size = x4.shape[-2:]
+        x1 = F.adaptive_avg_pool2d(self.feature1_conv(x1), target_size)
+        x2 = F.adaptive_avg_pool2d(self.feature2_conv(x2), target_size)
+        x3 = F.adaptive_avg_pool2d(self.feature3_conv(x3), target_size)
 
         rgb_fused = self.cross_attn1(x1, x2)
         rgb_fused = self.gated_fusion1(rgb_fused, x2)
@@ -199,9 +196,49 @@ class SharedNutritionHead(nn.Module):
 
     def forward(self, x1, x2, x3, x4):
         features = self.extract_features(x1, x2, x3, x4)
-        shared = self.shared_mlp(features)
+        shared = self.dropout(features)
         outputs = torch.cat([head(shared) for head in self.task_heads], dim=1)
         return self.output_activation(outputs)
+
+    @torch.no_grad()
+    def initialize_from_legacy_heads(self, legacy_heads):
+        if len(legacy_heads) != len(self.task_heads):
+            raise ValueError(f"Expected {len(self.task_heads)} legacy heads, got {len(legacy_heads)}")
+
+        shared_module_names = [
+            "feature1_conv",
+            "feature2_conv",
+            "feature3_conv",
+            "feature4_conv",
+            "cross_attn1",
+            "gated_fusion1",
+            "cross_attn2",
+            "gated_fusion2",
+            "rgb_fusion",
+            "semantic_fusion",
+            "rgb_mask",
+            "semantic_mask",
+            "fused_mask",
+            "attention",
+        ]
+
+        for module_name in shared_module_names:
+            target_module = getattr(self, module_name)
+            target_state = target_module.state_dict()
+            source_states = [getattr(head, module_name).state_dict() for head in legacy_heads]
+
+            for key, target_value in target_state.items():
+                source_values = [state[key].to(device=target_value.device, dtype=target_value.dtype) for state in source_states]
+                if target_value.is_floating_point():
+                    target_state[key].copy_(torch.stack(source_values, dim=0).mean(dim=0))
+                else:
+                    target_state[key].copy_(source_values[0])
+
+            target_module.load_state_dict(target_state)
+
+        for task_head, legacy_head in zip(self.task_heads, legacy_heads):
+            task_head.weight.copy_(legacy_head.fc.weight)
+            task_head.bias.copy_(legacy_head.fc.bias)
 
 
 # 测试代码（输入模拟数据）

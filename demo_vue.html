@@ -524,6 +524,7 @@
                     previewUrl: '',
                     latestNutrition: null,
                     latestMeta: null,
+                    latestAdviceMeta: null,
                     loadingPlan: false,
                     loadingMeal: false
                 };
@@ -652,23 +653,28 @@
 
                         const planData = { height, weight, age, bmi, targets };
                         const localAdvice = this.buildPlanAdvice(planData);
-                        const apiAdvice = await this.requestAdvice({
+                        const adviceResponse = await this.requestAdvice({
                             mode: this.mode === 'weight_loss' ? 'weight_loss' : 'normal',
                             nutrition: targets,
                             profile: { height_cm: height, weight_kg: weight, age, bmi }
                         });
+                        this.latestAdviceMeta = adviceResponse.meta;
 
                         this.plan = {
                             mode: this.mode,
                             profile: { height_cm: height, weight_kg: weight, age },
                             bmi: Math.round(bmi * 10) / 10,
                             targets,
-                            advice: apiAdvice || localAdvice,
+                            advice: adviceResponse.text || localAdvice,
                             createdAt: new Date().toISOString()
                         };
 
                         localStorage.setItem(PLAN_KEY, JSON.stringify(this.plan));
-                        this.status = 'Plan saved locally';
+                        this.status = adviceResponse.meta.source === 'llm'
+                            ? 'AI plan saved'
+                            : 'Plan saved with local fallback';
+                    } catch (error) {
+                        this.status = `生成建议失败：${error.message}`;
                     } finally {
                         this.loadingPlan = false;
                     }
@@ -693,12 +699,33 @@
                             body: JSON.stringify(payload)
                         });
                         if (!response.ok) {
-                            throw new Error('advice api failed');
+                            let message = `advice api ${response.status}`;
+                            try {
+                                const errorBody = await response.json();
+                                message = errorBody.error || message;
+                            } catch (parseError) {
+                                message = response.statusText || message;
+                            }
+                            throw new Error(message);
                         }
                         const result = await response.json();
-                        return result.advice || '';
+                        return {
+                            text: result.advice || '',
+                            meta: {
+                                source: result.source || 'unknown',
+                                model: result.model || '',
+                                warning: result.warning || ''
+                            }
+                        };
                     } catch (error) {
-                        return '';
+                        return {
+                            text: '',
+                            meta: {
+                                source: 'unavailable',
+                                model: '',
+                                warning: error.message
+                            }
+                        };
                     }
                 },
                 resetPlan() {
@@ -706,6 +733,7 @@
                     this.meals = [];
                     this.latestNutrition = null;
                     this.latestMeta = null;
+                    this.latestAdviceMeta = null;
                     localStorage.removeItem(PLAN_KEY);
                     localStorage.removeItem(MEALS_KEY);
                     this.status = 'Local plan cleared';
@@ -755,7 +783,7 @@
                         this.latestNutrition = nutrition;
                         this.latestMeta = prediction.meta;
 
-                        const advice = await this.requestAdvice({
+                        const adviceResponse = await this.requestAdvice({
                             mode: this.mode === 'weight_loss' ? 'weight_loss' : 'normal',
                             nutrition,
                             profile: {
@@ -764,19 +792,18 @@
                                 consumed_before_meal: this.consumed
                             }
                         });
+                        this.latestAdviceMeta = adviceResponse.meta;
 
                         this.meals.unshift({
                             id: Date.now(),
                             name: this.file.name,
                             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
                             nutrition,
-                            advice,
+                            advice: adviceResponse.text,
                             meta: prediction.meta
                         });
                         localStorage.setItem(MEALS_KEY, JSON.stringify(this.meals));
-                        this.status = prediction.meta.source === 'mock'
-                            ? 'Mock prediction saved'
-                            : 'Meal checked in';
+                        this.status = `Meal checked in · ${prediction.meta.source}`;
                     } catch (error) {
                         this.status = `分析失败：${error.message}`;
                     } finally {
@@ -828,33 +855,6 @@
                             raw: result
                         }
                     };
-                },
-                async mockNutritionPrediction(file) {
-                    await new Promise((resolve) => setTimeout(resolve, 380));
-                    const name = file.name.toLowerCase();
-
-                    if (name.includes('salad') || name.includes('vegetable')) {
-                        return this.normalizePredictionResponse({
-                            source: 'mock',
-                            nutrition: { calories: 260, mass: 280, fat: 9, carb: 28, protein: 13 }
-                        });
-                    }
-                    if (name.includes('chicken') || name.includes('fish')) {
-                        return this.normalizePredictionResponse({
-                            source: 'mock',
-                            nutrition: { calories: 430, mass: 320, fat: 16, carb: 26, protein: 42 }
-                        });
-                    }
-                    if (name.includes('cake') || name.includes('fried')) {
-                        return this.normalizePredictionResponse({
-                            source: 'mock',
-                            nutrition: { calories: 760, mass: 260, fat: 38, carb: 82, protein: 16 }
-                        });
-                    }
-                    return this.normalizePredictionResponse({
-                        source: 'mock',
-                        nutrition: { calories: 520, mass: 310, fat: 18, carb: 62, protein: 24 }
-                    });
                 },
                 progressClass(card) {
                     const ratio = card.used / Math.max(card.target, 1);

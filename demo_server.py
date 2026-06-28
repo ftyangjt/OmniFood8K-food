@@ -4,30 +4,50 @@ import threading
 from email.parser import BytesParser
 from email.policy import default
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
-import cv2
-import numpy as np
-import torch
-
-from scripts.infer_nutrition import (
-    build_depth_model,
-    build_nutrition_model,
-    make_depth_image,
-    predict,
-    project_path,
-    resolve_path,
-)
 
 
 HOST = "127.0.0.1"
 PORT = 8000
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "aaaaaaaaaaaaaaaa")
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://tokenflux.dev/v1")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
-OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "xhigh")
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_local_env(filename=".env"):
+    env_path = os.path.join(PROJECT_DIR, filename)
+    if not os.path.exists(env_path):
+        return
+
+    with open(env_path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+def first_env(*names, default=""):
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value.strip()
+    return default
+
+
+load_local_env()
+
+AI_API_KEY = first_env("AI_API_KEY", "OPENAI_API_KEY")
+AI_BASE_URL = first_env("AI_BASE_URL", "OPENAI_BASE_URL", default="https://tokenflux.dev/v1")
+AI_MODEL = first_env("AI_MODEL", "OPENAI_MODEL", default="gpt-5.5")
+AI_API_STYLE = first_env("AI_API_STYLE", "OPENAI_API_STYLE", default="chat").lower()
+AI_REASONING_EFFORT = first_env("AI_REASONING_EFFORT", "OPENAI_REASONING_EFFORT", default="xhigh")
+AI_TIMEOUT_SECONDS = int(first_env("AI_TIMEOUT_SECONDS", default="60"))
 
 DEFAULT_NUTRITION_CKPT = r"trained_weights\omnifood8k\ckpt_best.pth"
 DEFAULT_ENCODER = "vitl"
@@ -37,11 +57,53 @@ MODEL_CACHE = {}
 MODEL_CACHE_LOCK = threading.Lock()
 
 
+def project_path(*parts):
+    return os.path.join(PROJECT_DIR, *parts)
+
+
+def resolve_path(path):
+    if path is None:
+        return None
+    return path if os.path.isabs(path) else project_path(path)
+
+
+def import_inference_dependencies():
+    try:
+        import cv2
+        import numpy as np
+        import torch
+        from scripts.infer_nutrition import (
+            build_depth_model,
+            build_nutrition_model,
+            make_depth_image,
+            predict,
+        )
+    except ModuleNotFoundError as exc:
+        missing = exc.name or str(exc)
+        raise RuntimeError(
+            "模型推理依赖缺失："
+            f"{missing}。请先激活项目环境 `conda activate omnifood`，"
+            "或安装 requirements.txt/requirements-cu128.txt 后再启动服务。"
+        ) from exc
+
+    return cv2, np, torch, build_depth_model, build_nutrition_model, make_depth_image, predict
+
+
 class DemoHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/health":
             self.send_json({
                 "ok": True,
+                "ai": {
+                    "configured": not is_placeholder_key(AI_API_KEY),
+                    "base_url": AI_BASE_URL,
+                    "model": AI_MODEL,
+                    "style": AI_API_STYLE,
+                },
+                "model_files": {
+                    "nutrition": os.path.exists(resolve_path(DEFAULT_NUTRITION_CKPT)),
+                    "depth": os.path.exists(project_path("pth", f"depth_anything_v2_{DEFAULT_ENCODER}.pth")),
+                },
                 "endpoints": {
                     "advice": "/api/advice",
                     "nutrition_predict": "/api/nutrition/predict",
@@ -56,8 +118,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
         try:
             if self.path == "/api/advice":
                 payload = self.read_json_body()
-                advice = generate_advice(payload)
-                self.send_json({"advice": advice})
+                self.send_json(generate_advice(payload))
                 return
 
             if self.path == "/api/nutrition/predict":
@@ -139,6 +200,7 @@ def parse_json_text(raw, default):
 
 
 def predict_nutrition(payload):
+    cv2, np, _, _, _, make_depth_image, predict = import_inference_dependencies()
     image_data = payload.get("image_data") or b""
     if not image_data:
         raise ValueError("No image file was uploaded.")
@@ -186,6 +248,7 @@ def predict_nutrition(payload):
 
 
 def load_models(ckpt_path, depth_ckpt_path, encoder):
+    _, _, torch, build_depth_model, build_nutrition_model, _, _ = import_inference_dependencies()
     cache_key = (ckpt_path, depth_ckpt_path, encoder)
     with MODEL_CACHE_LOCK:
         if cache_key not in MODEL_CACHE:
@@ -197,17 +260,33 @@ def load_models(ckpt_path, depth_ckpt_path, encoder):
 
 
 def generate_advice(payload):
-    if is_placeholder_key(OPENAI_API_KEY):
-        return generate_mock_advice(payload)
-    return generate_llm_advice(payload)
+    if is_placeholder_key(AI_API_KEY):
+        return {
+            "advice": generate_local_advice(payload),
+            "source": "local_fallback",
+            "warning": "AI API key is not configured. Set AI_API_KEY or OPENAI_API_KEY in .env.",
+        }
+
+    return {
+        "advice": generate_llm_advice(payload),
+        "source": "llm",
+        "model": AI_MODEL,
+    }
 
 
 def is_placeholder_key(api_key):
     cleaned = (api_key or "").strip()
-    return not cleaned or cleaned.startswith("aaaa")
+    lowered = cleaned.lower()
+    return (
+        not cleaned
+        or cleaned.startswith("aaaa")
+        or "replace_with" in lowered
+        or "your_api_key" in lowered
+        or lowered in {"changeme", "none", "null"}
+    )
 
 
-def generate_mock_advice(payload):
+def generate_local_advice(payload):
     mode = payload.get("mode", "normal")
     nutrition = payload.get("nutrition", {})
     profile = payload.get("profile", {})
@@ -249,33 +328,59 @@ def generate_llm_advice(payload):
     profile = payload.get("profile", {})
 
     prompt = build_prompt(mode, nutrition, profile)
+    if AI_API_STYLE == "responses":
+        data = request_responses_api(prompt)
+    else:
+        data = request_chat_completions_api(prompt)
+
+    return extract_response_text(data)
+
+
+def request_responses_api(prompt):
     request_body = {
-        "model": OPENAI_MODEL,
+        "model": AI_MODEL,
         "input": prompt,
         "reasoning": {
-            "effort": OPENAI_REASONING_EFFORT
+            "effort": AI_REASONING_EFFORT
         },
         "store": False,
     }
 
+    return post_ai_json(f"{AI_BASE_URL.rstrip('/')}/responses", request_body)
+
+
+def request_chat_completions_api(prompt):
+    request_body = {
+        "model": AI_MODEL,
+        "messages": [
+            {"role": "system", "content": "你是一个谨慎、简洁的中文营养建议助手。"},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.4,
+    }
+
+    return post_ai_json(f"{AI_BASE_URL.rstrip('/')}/chat/completions", request_body)
+
+
+def post_ai_json(url, request_body):
     request = Request(
-        f"{OPENAI_BASE_URL.rstrip('/')}/responses",
+        url,
         data=json.dumps(request_body).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Authorization": f"Bearer {AI_API_KEY}",
             "Content-Type": "application/json",
         },
         method="POST",
     )
 
     try:
-        with urlopen(request, timeout=60) as response:
-            data = json.loads(response.read().decode("utf-8"))
+        with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"LLM API error {exc.code}: {error_body}") from exc
-
-    return extract_response_text(data)
+    except URLError as exc:
+        raise RuntimeError(f"LLM API network error: {exc.reason}") from exc
 
 
 def build_prompt(mode, nutrition, profile):
@@ -310,6 +415,23 @@ def extract_response_text(data):
     if isinstance(data.get("output_text"), str):
         return data["output_text"].strip()
 
+    choices = data.get("choices")
+    if isinstance(choices, list):
+        texts = []
+        for choice in choices:
+            message = choice.get("message", {})
+            content = message.get("content")
+            if isinstance(content, str):
+                texts.append(content)
+            elif isinstance(content, list):
+                texts.extend(
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") in ("text", "output_text")
+                )
+        if texts:
+            return "\n".join(texts).strip()
+
     texts = []
     for item in data.get("output", []):
         for content in item.get("content", []):
@@ -322,7 +444,8 @@ def extract_response_text(data):
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), DemoHandler)
     print(f"Demo server running at http://{HOST}:{PORT}/demo_vue.html")
-    print(f"Reserved nutrition API: http://{HOST}:{PORT}/api/nutrition/predict")
-    print(f"LLM endpoint: {OPENAI_BASE_URL.rstrip('/')}/responses")
-    print(f"LLM model: {OPENAI_MODEL}")
+    print(f"Nutrition API: http://{HOST}:{PORT}/api/nutrition/predict")
+    print(f"AI configured: {not is_placeholder_key(AI_API_KEY)}")
+    print(f"AI endpoint: {AI_BASE_URL.rstrip('/')} ({AI_API_STYLE})")
+    print(f"AI model: {AI_MODEL}")
     server.serve_forever()

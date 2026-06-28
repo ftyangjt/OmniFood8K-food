@@ -54,6 +54,40 @@ python scripts\infer_nutrition.py --img-path .\fqcd.jpg --ckpt .\trained_weights
 
 入口脚本集中在 `scripts/` 目录。请统一使用 `python scripts\...` 的命令形式。
 
+## 网页 Demo
+
+网页入口是 `demo_vue.html`，后端入口是 `demo_server.py`。请务必在包含 `torch`、`torchvision`、`opencv-python` 等模型依赖的环境里启动后端，否则图片上传接口会返回依赖缺失错误。
+
+```powershell
+conda activate omnifood
+python demo_server.py
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:8000/demo_vue.html
+```
+
+后端接口：
+
+```text
+GET  /api/health
+POST /api/advice
+POST /api/nutrition/predict
+```
+
+AI 建议配置从环境变量或本地 `.env` 读取。复制 `.env.example` 为 `.env`，填写自己的 key：
+
+```text
+AI_API_KEY=...
+AI_BASE_URL=https://tokenflux.dev/v1
+AI_MODEL=gpt-5.5
+AI_API_STYLE=chat
+```
+
+如果服务商使用 Responses API，把 `AI_API_STYLE` 改为 `responses`。`.env` 已加入 `.gitignore`，不要把真实 API key 写进代码或提交到仓库。
+
 ## 仓库结构
 
 ```text

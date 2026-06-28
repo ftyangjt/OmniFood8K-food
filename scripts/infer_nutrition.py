@@ -17,7 +17,7 @@ from model import dual_swin_convnext
 from model.convnext1 import convnext_small
 from model.myswinb import SwinTransformer
 from modules.adapter import DepthAdapterV4
-from modules.fusion import SharedNutritionHead
+from modules.fusion import FeatureFusionNetwork222_Mask, SharedNutritionHead
 
 
 DEPTH_ANYTHING_ROOT = os.path.join(PROJECT_ROOT, 'external', 'Depth-Anything-V2')
@@ -55,24 +55,52 @@ def build_nutrition_model(ckpt_path, device):
     net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT().to(device)
     adapter = DepthAdapterV4(in_ch=3, base_ch=32).to(device)
 
-    nutrition_head = SharedNutritionHead(dropout=0.1).to(device)
-
     ckpt = torch.load(ckpt_path, map_location=device)
-    required = ['net', 'net2', 'adapter', 'net_cat', 'nutrition_head']
+    required = ['net', 'net2', 'adapter', 'net_cat']
     missing = [key for key in required if key not in ckpt]
     if missing:
-        raise KeyError(f'Checkpoint is not a trained nutrition model. Missing keys: {missing}')
+        raise KeyError(f'Checkpoint is not a trained nutrition model. Missing keys: {missing}. Available keys: {sorted(ckpt.keys())}')
 
     net.load_state_dict(ckpt['net'], strict=False)
     net2.load_state_dict(ckpt['net2'], strict=False)
     adapter.load_state_dict(ckpt['adapter'], strict=False)
     net_cat.load_state_dict(ckpt['net_cat'], strict=False)
-    nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
 
-    modules = [net, net2, net_cat, adapter, nutrition_head]
-    for module in modules:
+    if 'nutrition_head' in ckpt:
+        nutrition_head = SharedNutritionHead(dropout=0.1).to(device)
+        nutrition_head.load_state_dict(ckpt['nutrition_head'], strict=False)
+        head = {
+            'type': 'shared',
+            'modules': [nutrition_head],
+        }
+    else:
+        legacy_keys = ['pre_net1', 'pre_net2', 'pre_net3', 'pre_net4', 'pre_net5']
+        legacy_missing = [key for key in legacy_keys if key not in ckpt]
+        if legacy_missing:
+            raise KeyError(
+                'Checkpoint head format is not supported. '
+                f'Missing nutrition_head and legacy keys: {legacy_missing}. '
+                f'Available keys: {sorted(ckpt.keys())}'
+            )
+
+        legacy_heads = [FeatureFusionNetwork222_Mask(dropout=0.1).to(device) for _ in legacy_keys]
+        for head_module, key in zip(legacy_heads, legacy_keys):
+            head_module.load_state_dict(ckpt[key], strict=False)
+        head = {
+            'type': 'legacy_multi_head',
+            'modules': legacy_heads,
+        }
+
+    modules = {
+        'net': net,
+        'net2': net2,
+        'net_cat': net_cat,
+        'adapter': adapter,
+        'head': head,
+    }
+    for module in [net, net2, net_cat, adapter, *head['modules']]:
         module.eval()
-    return net, net2, net_cat, adapter, nutrition_head
+    return modules
 
 
 def make_depth_image(depth_model, raw_image, input_size, grayscale=True):
@@ -97,7 +125,11 @@ def preprocess_bgr(image_bgr):
 
 
 def predict(raw_image, depth_image, nutrition_modules, device):
-    net, net2, net_cat, adapter, nutrition_head = nutrition_modules
+    net = nutrition_modules['net']
+    net2 = nutrition_modules['net2']
+    net_cat = nutrition_modules['net_cat']
+    adapter = nutrition_modules['adapter']
+    head = nutrition_modules['head']
     inputs = preprocess_bgr(raw_image).to(device)
     inputs_depth = preprocess_bgr(depth_image).to(device)
 
@@ -105,7 +137,13 @@ def predict(raw_image, depth_image, nutrition_modules, device):
         r0, r1, r2, r3, r4 = net(inputs)
         d1, d2, d3, d4 = net2(adapter(inputs_depth))
         o1, o2, o3, o4 = net_cat([r1, r2, r3, r4], [d1, d2, d3, d4])
-        outputs = nutrition_head(o1, o2, o3, o4).squeeze(0).tolist()
+        if head['type'] == 'shared':
+            outputs = head['modules'][0](o1, o2, o3, o4).squeeze(0).tolist()
+        else:
+            outputs = [
+                head_module(o1, o2, o3, o4).squeeze().item()
+                for head_module in head['modules']
+            ]
     return outputs
 
 

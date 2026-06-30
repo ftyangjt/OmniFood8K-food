@@ -1,30 +1,46 @@
 # 推理阶段消融实验
 
-这个文件夹用于做 **inference-time ablation**，也就是不重新训练模型，只在测试集推理时改变 Depth 输入，观察当前模型对深度图的依赖程度。
+这个文件夹用于做 inference-time ablation，也就是不重新训练模型，只在测试集推理时改变 Depth 输入，观察当前模型对深度图的依赖程度。
 
-## 运行命令
+## 最短运行命令
 
-在项目根目录运行：
+推荐先进入项目根目录：
 
 ```powershell
-python .\experiments\inference_ablation\run_inference_ablation.py --ckpt .\trained_weights\omnifood8k\ckpt_best.pth --b 8
+cd C:\Users\13786\Desktop\Deep_Learning\OmniFood8K-food
+conda activate omnifood
+python run_ablation.py
 ```
 
-如果你重新训练后的权重保存在别的位置，把 `--ckpt` 改成新的最优权重：
+默认会使用：
 
-```powershell
-python .\experiments\inference_ablation\run_inference_ablation.py --ckpt .\saved\train\ckpt_best.pth --b 8
+```text
+trained_weights/omnifood8k/ckpt_best.pth
 ```
 
 如果显存不够，把 batch size 调小：
 
 ```powershell
-python .\experiments\inference_ablation\run_inference_ablation.py --ckpt .\trained_weights\omnifood8k\ckpt_best.pth --b 2
+python run_ablation.py --b 2
+```
+
+如果你当前站在上一级目录 `C:\Users\13786\Desktop\Deep_Learning`，则运行：
+
+```powershell
+python .\OmniFood8K-food\run_ablation.py
+```
+
+## 使用其他权重
+
+如果你重新训练后的权重在别的位置，再手动指定：
+
+```powershell
+python run_ablation.py --ckpt .\saved\train\ckpt_best.pth
 ```
 
 ## 默认比较内容
 
-脚本默认会比较 6 组：
+脚本默认比较 6 组：
 
 | 模式 | 含义 |
 |---|---|
@@ -52,8 +68,6 @@ experiments/inference_ablation/outputs/ablation_report.md
 
 ## 指标说明
 
-脚本会输出：
-
 | 指标 | 含义 |
 |---|---|
 | MAE | 平均绝对误差，表示预测值实际错了多少 |
@@ -72,7 +86,7 @@ PMAE = abs(prediction - label) / label
 
 ## 如何写结论
 
-如果结果类似：
+如果结果显示：
 
 ```text
 rgb_depth PMAE 最低

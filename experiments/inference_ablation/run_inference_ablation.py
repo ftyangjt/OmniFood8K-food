@@ -37,7 +37,12 @@ def project_path(*parts):
 def resolve_path(path):
     if path is None:
         return None
-    return path if os.path.isabs(path) else project_path(path)
+    if os.path.isabs(path):
+        return path
+    candidate = os.path.abspath(path)
+    if os.path.exists(candidate):
+        return candidate
+    return project_path(path)
 
 
 def set_seed(seed):
@@ -244,7 +249,12 @@ def write_markdown(rows, args, out_path):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Inference-time ablation for OmniFood8K nutrition model")
-    parser.add_argument("--ckpt", type=str, required=True, help="trained nutrition checkpoint")
+    parser.add_argument(
+        "--ckpt",
+        type=str,
+        default="./trained_weights/omnifood8k/ckpt_best.pth",
+        help="trained nutrition checkpoint",
+    )
     parser.add_argument("--dataset", choices=["nutrition8K", "nutrition_rgb_pre_d"], default="nutrition8K")
     parser.add_argument("--data_root_8k", type=str, default="./data/0-OminiFood8k")
     parser.add_argument("--data_root", type=str, default="./data/nutrition5k_dataset")

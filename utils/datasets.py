@@ -24,6 +24,8 @@ import open3d as o3d
 
 import torchvision.transforms as T
 
+KJ_TO_KCAL = 1.0 / 4.184
+
 
 class Nutrition(Dataset):
     def __init__(self, image_path, txt_dir, transform=None):
@@ -329,7 +331,7 @@ class Nutrition8k(Dataset):
             image_rgb = line.split()[0]  # side_angles/dish_1550862840/frames_sampled5/camera_A_frame_010.jpeg
 
             mass = line.strip().split()[1]
-            calories = line.strip().split()[2]
+            calories = float(line.strip().split()[2]) * KJ_TO_KCAL
             protein = line.strip().split()[3]
             fat = line.strip().split()[4]
             carb = line.strip().split()[5]
@@ -430,7 +432,7 @@ class Nutrition11w(Dataset):
             image_rgb = line.split()[0]  # side_angles/dish_1550862840/frames_sampled5/camera_A_frame_010.jpeg
 
             mass = line.strip().split()[1]
-            calories = line.strip().split()[2]
+            calories = float(line.strip().split()[2]) * KJ_TO_KCAL
             protein = line.strip().split()[3]
             fat = line.strip().split()[4]
             carb = line.strip().split()[5]

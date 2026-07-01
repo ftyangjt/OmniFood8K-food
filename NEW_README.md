@@ -302,14 +302,14 @@ python run_ablation.py
 
 Observed overall PMAE comparison:
 
-| Mode | PMAE Mean | PMAE Std |
-|---|---:|---:|
-| RGB + Depth | 38.82% | 47.08% |
-| Blank Depth | 85.61% | 91.23% |
-| Mean Depth | 89.69% | 105.27% |
-| Random Depth | 76.88% | 103.08% |
-| Shuffled Depth | 43.97% | 56.10% |
-| Blur Depth | 92.43% | 217.83% |
+| Mode           | PMAE Mean | PMAE Std |
+| -------------- | --------: | -------: |
+| RGB + Depth    |    38.82% |   47.08% |
+| Blank Depth    |    85.61% |   91.23% |
+| Mean Depth     |    89.69% |  105.27% |
+| Random Depth   |    76.88% |  103.08% |
+| Shuffled Depth |    43.97% |   56.10% |
+| Blur Depth     |    92.43% |  217.83% |
 
 Interpretation:
 

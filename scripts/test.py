@@ -18,9 +18,9 @@ from utils.utils import logtxt, check_dirs
 from utils.utils_data222 import get_DataLoader
 
 from model import dual_swin_convnext
-from model.convnext1 import convnext_tiny
+from model.convnext1 import convnext_small
 from model.myswinb import SwinTransformer
-from modules.fusion import SharedNutritionHead
+from modules.fusion import FeatureFusionNetwork222_Mask
 from modules.adapter import DepthAdapterV4
 
 def project_path(*parts):
@@ -39,18 +39,6 @@ def set_seed(args):
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
-
-
-def load_matching_state_dict(model, state_dict, name):
-    model_state = model.state_dict()
-    matched_state = {
-        key: value
-        for key, value in state_dict.items()
-        if key in model_state and value.shape == model_state[key].shape
-    }
-    skipped = len(state_dict) - len(matched_state)
-    model.load_state_dict(matched_state, strict=False)
-    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
 
 
 parser = argparse.ArgumentParser(description='PyTorch Nutrition Testing')
@@ -87,10 +75,14 @@ print('==> Preparing data..')
 # Build model
 # =========================
 net = SwinTransformer()
-net2 = convnext_tiny(pretrained=False, in_22k=False)
+net2 = convnext_small(pretrained=False, in_22k=False)
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
-nutrition_head = SharedNutritionHead(dropout=0.1)
+pre_net1 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net2 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net3 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net4 = FeatureFusionNetwork222_Mask(dropout=0.05)
+pre_net5 = FeatureFusionNetwork222_Mask(dropout=0.1)
 
 adapter = DepthAdapterV4(in_ch=3, base_ch=32)
 
@@ -99,7 +91,11 @@ net2 = net2.to(device)
 net_cat = net_cat.to(device)
 adapter = adapter.to(device)
 
-nutrition_head = nutrition_head.to(device)
+pre_net1 = pre_net1.to(device)
+pre_net2 = pre_net2.to(device)
+pre_net3 = pre_net3.to(device)
+pre_net4 = pre_net4.to(device)
+pre_net5 = pre_net5.to(device)
 
 criterion = nn.L1Loss()
 
@@ -108,17 +104,17 @@ criterion = nn.L1Loss()
 # =========================
 print('==> Loading trained checkpoint..')
 ckpt = torch.load(args.ckpt, map_location=device)
-required = ['net', 'net2', 'adapter', 'net_cat', 'nutrition_head']
-missing = [key for key in required if key not in ckpt]
-if missing:
-    raise KeyError(f'Checkpoint is not a shared-head nutrition model. Missing keys: {missing}')
 
-load_matching_state_dict(net, ckpt['net'], 'net')
-load_matching_state_dict(net2, ckpt['net2'], 'net2')
-load_matching_state_dict(adapter, ckpt['adapter'], 'adapter')
-load_matching_state_dict(net_cat, ckpt['net_cat'], 'net_cat')
+net.load_state_dict(ckpt['net'], strict=False)
+net2.load_state_dict(ckpt['net2'], strict=False)
+adapter.load_state_dict(ckpt['adapter'], strict=False)
+net_cat.load_state_dict(ckpt['net_cat'], strict=False)
 
-load_matching_state_dict(nutrition_head, ckpt['nutrition_head'], 'nutrition_head')
+pre_net1.load_state_dict(ckpt['pre_net1'], strict=False)
+pre_net2.load_state_dict(ckpt['pre_net2'], strict=False)
+pre_net3.load_state_dict(ckpt['pre_net3'], strict=False)
+pre_net4.load_state_dict(ckpt['pre_net4'], strict=False)
+pre_net5.load_state_dict(ckpt['pre_net5'], strict=False)
 
 print(f"Loaded checkpoint from: {args.ckpt}")
 if 'epoch' in ckpt:
@@ -146,8 +142,12 @@ def forward_once(inputs, inputs_rgbd):
 
     o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
 
-    pred = nutrition_head(o1, o2, o3, o4)
-    outputs = [pred[:, i] for i in range(5)]
+    outputs = [0, 0, 0, 0, 0]
+    outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
+    outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
+    outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
+    outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
+    outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
 
     return outputs
 
@@ -157,7 +157,11 @@ def test():
     net2.eval()
     net_cat.eval()
     adapter.eval()
-    nutrition_head.eval()
+    pre_net1.eval()
+    pre_net2.eval()
+    pre_net3.eval()
+    pre_net4.eval()
+    pre_net5.eval()
 
     calories_ae = 0
     mass_ae = 0
@@ -233,13 +237,13 @@ def test():
 
     result_str = (
         "\n================ Test Results ================\n"
-        f"Calories MAE (kcal) : {calories_mae:.6f}\n"
+        f"Calories MAE  : {calories_mae:.6f}\n"
         f"Mass MAE      : {mass_mae:.6f}\n"
         f"Fat MAE       : {fat_mae:.6f}\n"
         f"Carb MAE      : {carb_mae:.6f}\n"
         f"Protein MAE   : {protein_mae:.6f}\n"
         f"Mean MAE      : {mean_mae:.6f}\n\n"
-        f"Calories PMAE       : {calories_pmae:.6f}\n"
+        f"Calories PMAE : {calories_pmae:.6f}\n"
         f"Mass PMAE     : {mass_pmae:.6f}\n"
         f"Fat PMAE      : {fat_pmae:.6f}\n"
         f"Carb PMAE     : {carb_pmae:.6f}\n"

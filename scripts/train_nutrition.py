@@ -21,7 +21,7 @@ import numpy as np
 from collections import OrderedDict
 import random
 from model import dual_swin_convnext
-from model.convnext1 import convnext_tiny
+from model.convnext1 import convnext_small
 import torch.backends.cudnn as cudnn
 from model.myswinb import SwinTransformer
 from model.three_D import DynamicTaskPrioritization
@@ -37,18 +37,6 @@ def resolve_path(path):
     if path is None:
         return None
     return path if os.path.isabs(path) else project_path(path)
-
-
-def load_matching_state_dict(model, state_dict, name):
-    model_state = model.state_dict()
-    matched_state = {
-        key: value
-        for key, value in state_dict.items()
-        if key in model_state and value.shape == model_state[key].shape
-    }
-    skipped = len(state_dict) - len(matched_state)
-    model.load_state_dict(matched_state, strict=False)
-    print(f"{name}: loaded {len(matched_state)} tensors, skipped {skipped} tensors with unmatched names/shapes.")
 
 
 
@@ -86,13 +74,11 @@ parser.add_argument('--data_root_8k', type=str,
 parser.add_argument('--data_root_11w', type=str,
                     default='./data/syn-data', help="synthetic 11w dataset root")
 parser.add_argument('--swin_ckpt', type=str,
-                    default='./pth/swin_tiny_patch4_window7_224.pth',
-                    help='Swin-Tiny pretrained checkpoint. The 320/window10 model will load matching tensors and skip incompatible relative-position tables.')
+                    default='./pth/swin_base_patch4_window12_384_22k.pth',
+                    help='Swin Transformer pretrained checkpoint')
 parser.add_argument('--convnext_ckpt', type=str,
-                    default='./pth/convnext_tiny_1k_224_ema.pth',
-                    help='ConvNeXt-Tiny pretrained checkpoint')
-parser.add_argument('--nutrition_head_ckpt', type=str, default=None,
-                    help='optional shared nutrition head checkpoint for warm start')
+                    default='./pth/convnext_small_22k_1k_384.pth',
+                    help='ConvNeXt pretrained checkpoint')
 parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
 parser.add_argument('--num_workers', type=int, default=0,
                     help='DataLoader worker count. Use 0 on Windows to avoid spawn recursion.')
@@ -103,10 +89,8 @@ args.save_dir = resolve_path(args.save_dir)
 args.data_root = resolve_path(args.data_root)
 args.data_root_8k = resolve_path(args.data_root_8k)
 args.data_root_11w = resolve_path(args.data_root_11w)
-args.resume = resolve_path(args.resume)
 args.swin_ckpt = resolve_path(args.swin_ckpt)
 args.convnext_ckpt = resolve_path(args.convnext_ckpt)
-args.nutrition_head_ckpt = resolve_path(args.nutrition_head_ckpt)
 
 set_seed(args)
 
@@ -116,14 +100,18 @@ print('==> Preparing data..')
 
 global net
 net = SwinTransformer()
-net2 = convnext_tiny(pretrained=False,in_22k=False)
+net2 = convnext_small(pretrained=False,in_22k=False)
 
 # net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_Cat()
 net_cat = dual_swin_convnext.FusionNet_3Branch_UNet_FFT()
 
 # -------------------
-from modules.fusion import FeatureFusionNetwork222_Mask, SharedNutritionHead
-nutrition_head = SharedNutritionHead(dropout=0.1)
+from modules.fusion import FeatureFusionNetwork222_Mask
+pre_net1 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net2 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net3 = FeatureFusionNetwork222_Mask(dropout=0.1)
+pre_net4 = FeatureFusionNetwork222_Mask(dropout=0.05)
+pre_net5 = FeatureFusionNetwork222_Mask(dropout=0.1)
 
 task_prior = DynamicTaskPrioritization(alpha=0.3)
 
@@ -134,65 +122,17 @@ adapter = DepthAdapterV4(in_ch=3, base_ch=32)
 print('==> Load checkpoint..')
 swin_ckpt_path = args.swin_ckpt
 convnext_ckpt_path = args.convnext_ckpt
-fallback_swin_ckpt_path = project_path('pth', 'swin_base_patch4_window12_384_22k.pth')
-fallback_convnext_ckpt_path = project_path('pth', 'convnext_small_22k_1k_384.pth')
 
 if not os.path.exists(swin_ckpt_path):
-    if os.path.exists(fallback_swin_ckpt_path):
-        print(f"Swin checkpoint not found: {swin_ckpt_path}. Falling back to partial load from: {fallback_swin_ckpt_path}")
-        swin_ckpt_path = fallback_swin_ckpt_path
-    else:
-        raise FileNotFoundError(f"Swin checkpoint not found: {swin_ckpt_path}")
+    raise FileNotFoundError(f"Swin checkpoint not found: {swin_ckpt_path}")
 if not os.path.exists(convnext_ckpt_path):
-    if os.path.exists(fallback_convnext_ckpt_path):
-        print(f"ConvNeXt checkpoint not found: {convnext_ckpt_path}. Falling back to partial load from: {fallback_convnext_ckpt_path}")
-        convnext_ckpt_path = fallback_convnext_ckpt_path
-    else:
-        raise FileNotFoundError(f"ConvNeXt checkpoint not found: {convnext_ckpt_path}")
+    raise FileNotFoundError(f"ConvNeXt checkpoint not found: {convnext_ckpt_path}")
 
 swin_ckpt = torch.load(swin_ckpt_path, map_location="cpu", weights_only=True)
 convnext_ckpt = torch.load(convnext_ckpt_path, map_location="cpu", weights_only=True)
 
-load_matching_state_dict(net, swin_ckpt["model"], "Swin")
-load_matching_state_dict(net2, convnext_ckpt["model"], "ConvNeXt")
-
-resume_ckpt = None
-if args.resume:
-    if not os.path.exists(args.resume):
-        raise FileNotFoundError(f"Resume checkpoint not found: {args.resume}")
-    resume_ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
-    for module_name, module in [
-        ("net", net),
-        ("net2", net2),
-        ("adapter", adapter),
-        ("net_cat", net_cat),
-    ]:
-        if module_name in resume_ckpt:
-            load_matching_state_dict(module, resume_ckpt[module_name], f"resume.{module_name}")
-
-    if "nutrition_head" in resume_ckpt:
-        load_matching_state_dict(nutrition_head, resume_ckpt["nutrition_head"], "resume.nutrition_head")
-    elif all(key in resume_ckpt for key in ["pre_net1", "pre_net2", "pre_net3", "pre_net4", "pre_net5"]):
-        legacy_dropouts = [0.1, 0.1, 0.1, 0.05, 0.1]
-        legacy_heads = [FeatureFusionNetwork222_Mask(dropout=dropout) for dropout in legacy_dropouts]
-        for legacy_head, key in zip(legacy_heads, ["pre_net1", "pre_net2", "pre_net3", "pre_net4", "pre_net5"]):
-            legacy_head.load_state_dict(resume_ckpt[key], strict=True)
-        nutrition_head.initialize_from_legacy_heads(legacy_heads)
-        print("Initialized shared nutrition head from legacy pre_net heads.")
-    else:
-        print("Resume checkpoint has no nutrition_head or legacy pre_net heads; nutrition head stays randomly initialized.")
-    print(f"Loaded training checkpoint from: {args.resume}")
-
-if args.nutrition_head_ckpt:
-    if resume_ckpt is not None:
-        print("Loading nutrition_head_ckpt after resume; it will override the resumed nutrition head.")
-    if not os.path.exists(args.nutrition_head_ckpt):
-        raise FileNotFoundError(f"Nutrition head checkpoint not found: {args.nutrition_head_ckpt}")
-    head_ckpt = torch.load(args.nutrition_head_ckpt, map_location="cpu", weights_only=False)
-    if "nutrition_head" not in head_ckpt:
-        raise KeyError(f"Nutrition head checkpoint missing key: nutrition_head")
-    nutrition_head.load_state_dict(head_ckpt["nutrition_head"], strict=True)
-    print(f"Loaded nutrition head warm start from: {args.nutrition_head_ckpt}")
+net.load_state_dict(swin_ckpt["model"], strict=False)
+net2.load_state_dict(convnext_ckpt["model"], strict=False)
 
 
 net = net.to(device)
@@ -200,7 +140,11 @@ net2 = net2.to(device)
 net_cat = net_cat.to(device)
 adapter = adapter.to(device)
 
-nutrition_head = nutrition_head.to(device)
+pre_net1 = pre_net1.to(device)
+pre_net2 = pre_net2.to(device)
+pre_net3 = pre_net3.to(device)
+pre_net4 = pre_net4.to(device)
+pre_net5 = pre_net5.to(device)
 
 criterion = nn.L1Loss()
 
@@ -213,29 +157,26 @@ optimizer = torch.optim.Adam([
 
     {'params': adapter.parameters(), 'lr': 1e-4, },  # 5e-4
 
-    {'params': nutrition_head.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': pre_net1.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': pre_net2.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': pre_net3.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': pre_net4.parameters(), 'lr': 1e-4, },  # 5e-4
+    {'params': pre_net5.parameters(), 'lr': 1e-4, },  # 5e-4
 
 ])
 
-def inter_modal_alignment_loss(rgb_feat, depth_feat, temperature=0.1):
-    B = rgb_feat.shape[0]
-    if rgb_feat.shape[-2:] != depth_feat.shape[-2:]:
-        depth_feat = F.interpolate(depth_feat, size=rgb_feat.shape[-2:], mode='bilinear', align_corners=False)
-
-    rgb_vec = F.normalize(rgb_feat.mean(dim=1).flatten(1), dim=1)
-    depth_vec = F.normalize(depth_feat.mean(dim=1).flatten(1), dim=1)
-    sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / temperature
-    labels = torch.arange(B, device=rgb_feat.device)
+def inter_modal_alignment_loss(cat_feat):
+    B, C, H, W = cat_feat.shape
+    # RGB / Depth 通道拆分
+    mid = C // 2
+    rgb_feat = cat_feat[:, :mid]
+    depth_feat = cat_feat[:, mid:]
+    # 全局平均池化
+    rgb_vec = F.normalize(rgb_feat.view(B, mid, -1).mean(dim=2), dim=1)
+    depth_vec = F.normalize(depth_feat.view(B, mid, -1).mean(dim=2), dim=1)
+    sim_matrix = torch.matmul(rgb_vec, depth_vec.t()) / 0.1
+    labels = torch.arange(B, device=cat_feat.device)
     return F.cross_entropy(sim_matrix, labels)
-
-
-def calories_consistency_loss(outputs):
-    calories = outputs[:, 0]
-    fat = outputs[:, 2]
-    carb = outputs[:, 3]
-    protein = outputs[:, 4]
-    estimated_calories = 9.0 * fat + 4.0 * carb + 4.0 * protein
-    return F.smooth_l1_loss(calories, estimated_calories)
 
 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=2e-6)
@@ -253,8 +194,12 @@ def train(epoch, net):
     print('\nEpoch: %d' % epoch)
     net.train()
     net2.train()
-    nutrition_head.train()
-    
+    pre_net1.train()
+    pre_net2.train()
+    pre_net3.train()
+    pre_net4.train()
+    pre_net5.train()
+
     net_cat.train()
     adapter.train()
 
@@ -295,8 +240,12 @@ def train(epoch, net):
 
         #  =====  输入 4 个 进行预测   ======
         o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
-        pred = nutrition_head(o1, o2, o3, o4)
-        outputs = [pred[:, i] for i in range(5)]
+        outputs = [0, 0, 0, 0, 0]
+        outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
+        outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
+        outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
+        outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
+        outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
 
 
         total_calories_loss = total_calories.shape[0] * criterion(outputs[0],total_calories) / total_calories.sum().item() if total_calories.sum().item() != 0 else criterion(outputs[0], total_calories)
@@ -307,13 +256,12 @@ def train(epoch, net):
 
         loss = total_calories_loss + total_mass_loss + total_fat_loss + total_carb_loss + total_protein_loss
 
-        loss_align = inter_modal_alignment_loss(r1, d1)
+        loss_align = inter_modal_alignment_loss(o1)
         loss_align = loss_align * 0.1    # λ 权重
-        loss_consistency = calories_consistency_loss(pred) * 0.01
 
         k1, k2, k3, k4, k5 = task_prior.task_weights
         loss22 = k1 * total_calories_loss + k2 * total_mass_loss + k3 * total_fat_loss + \
-                 k4 * total_carb_loss + k5 * total_protein_loss  + loss_align + loss_consistency
+                 k4 * total_carb_loss + k5 * total_protein_loss  + loss_align
 
         loss22.backward()
         optimizer.step()
@@ -342,7 +290,6 @@ def train(epoch, net):
                                   'carbloss: {:2.5f} \t'
                                   'proteinloss: {:2.5f} \t'
                                   'loss_align: {} \t'
-                                  'loss_consistency: {} \t'
                                   'lr:{:2.5f}-{:2.5f}-{:2.5f}-{:2.5f}'.format(
                 epoch, batch_idx + 1, len(trainloader),
                        train_loss / (batch_idx + 1),
@@ -352,14 +299,13 @@ def train(epoch, net):
                        carb_loss / (batch_idx + 1),
                        protein_loss / (batch_idx + 1),
                         loss_align,
-                        loss_consistency,
                 optimizer.param_groups[0]['lr'],
                 optimizer.param_groups[1]['lr'],
                 optimizer.param_groups[2]['lr'],
                 optimizer.param_groups[3]['lr']))
 
         if (batch_idx + 1) % 30 == 0 or batch_idx + 1 == len(trainloader):
-            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1), fat_loss / (batch_idx + 1),
+            current_kpis = torch.tensor([calories_loss / (batch_idx + 1), mass_loss / (batch_idx + 1),mass_loss / (batch_idx + 1),
                                          carb_loss / (batch_idx + 1), protein_loss / (batch_idx + 1)])
             task_prior.update_weights(current_kpis)
             print(task_prior.task_weights)
@@ -375,7 +321,6 @@ def test(epoch, net):
         net2.eval()
         net_cat.eval()
         adapter.eval()
-        nutrition_head.eval()
         calories_ae = 0
         mass_ae = 0
         fat_ae = 0
@@ -415,8 +360,12 @@ def test(epoch, net):
 
                 #  =====  输入 4 个 进行预测   ======
                 o1, o2, o3, o4 = outputs_feature[0], outputs_feature[1], outputs_feature[2], outputs_feature[3]
-                pred = nutrition_head(o1, o2, o3, o4)
-                outputs = [pred[:, i] for i in range(5)]
+                outputs = [0, 0, 0, 0, 0]
+                outputs[0] = pre_net1(o1, o2, o3, o4).squeeze()
+                outputs[1] = pre_net2(o1, o2, o3, o4).squeeze()
+                outputs[2] = pre_net3(o1, o2, o3, o4).squeeze()
+                outputs[3] = pre_net4(o1, o2, o3, o4).squeeze()
+                outputs[4] = pre_net5(o1, o2, o3, o4).squeeze()
 
                 if epoch % 10 == 0:
                     #
@@ -482,7 +431,11 @@ def test(epoch, net):
                 'net2': net2.state_dict(),
                 'adapter': adapter.state_dict(),
 
-                'nutrition_head': nutrition_head.state_dict(),
+                'pre_net1': pre_net1.state_dict(),
+                'pre_net2': pre_net2.state_dict(),
+                'pre_net3': pre_net3.state_dict(),
+                'pre_net4': pre_net4.state_dict(),
+                'pre_net5': pre_net5.state_dict(),
 
                 'net_cat': net_cat.state_dict(),
                 'optimizer': optimizer.state_dict(),
@@ -514,5 +467,4 @@ for epoch in range(0, args.epoch):
 logtxt(log_file_path, "======  Min  ===================")
 logtxt(log_file_path, "====  epoch ::: {} ===================".format(min_epoch))
 logtxt(log_file_path, "======  Min  ===================")
-
 
